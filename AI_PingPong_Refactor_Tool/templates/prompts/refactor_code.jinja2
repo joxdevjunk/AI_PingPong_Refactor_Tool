@@ -1,0 +1,274 @@
+# 🔄 Refactoring Code - {{ project_name }}
+
+{% include 'sections/context.jinja2' %}
+
+## 📚 Nomenclature du Code à Refactorer
+
+{% if selected_tasks %}
+{# === SECTION 1: Vue globale des variables d'instance === #}
+{% set all_classes = selected_tasks | map(attribute='class_name') | unique | list %}
+{% for class_name in all_classes %}
+{% set class_tasks = selected_tasks | selectattr('class_name', 'equalto', class_name) | list %}
+{% set first_task = class_tasks[0] %}
+
+**Classe : `{{ class_name }}`**
+
+### Variables d'instance disponibles
+
+{% if first_task.get('instance_variables_by_method') %}
+{% for method, vars in first_task['instance_variables_by_method'].items() %}
+- `{{ method }}()` définit : `{{ vars | join('`, `') }}`
+{% endfor %}
+{% else %}
+- Aucune variable d'instance détectée
+{% endif %}
+
+### Méthodes à refactorer
+
+{% for task in class_tasks %}
+**`{{ task['method_name'] }}()`** :
+{% set local_vars = task.get('local_vars', {}) %}
+- Paramètres : `{{ local_vars.get('parameters', []) | join('`, `') if local_vars.get('parameters') else 'aucun' }}`
+- Variables locales : `{{ local_vars.get('assigned', []) | join('`, `') if local_vars.get('assigned') else 'aucune' }}`
+- Variables de boucle : `{{ local_vars.get('for_vars', []) | join('`, `') if local_vars.get('for_vars') else 'aucune' }}`
+- Variables with : `{{ local_vars.get('with_vars', []) | join('`, `') if local_vars.get('with_vars') else 'aucune' }}`
+
+{% endfor %}
+
+---
+
+{% endfor %}
+
+🚨 **RÈGLES ABSOLUES** :
+- ❌ N'invente JAMAIS de nouveaux noms de variables
+- ✅ Utilise UNIQUEMENT les noms listés ci-dessus
+- ✅ Respecte EXACTEMENT la nomenclature du projet
+
+{% endif %}
+
+## 📋 Objectif du Refactoring
+
+{{ refactor_goal if refactor_goal else "⚠️ Objectif du refactoring à préciser (amélioration performance, lisibilité, maintenabilité, etc.)" }}
+
+## 📝 Code à Refactorer
+
+{% if num_tasks == 0 %}
+⚠️ **Aucune task sélectionnée** - Sélectionnez le code à refactorer.
+{% else %}
+{% for task in selected_tasks %}
+{% include 'sections/code_snippet.jinja2' %}
+{% endfor %}
+{% endif %}
+
+{% if constraints %}
+## ⚠️ Contraintes
+
+{{ constraints }}
+{% endif %}
+
+═══════════════════════════════════════════════════════════════════════════════
+🚨 FORMAT JSON OBLIGATOIRE - RÉPONSE EN FRANÇAIS
+═══════════════════════════════════════════════════════════════════════════════
+
+⚠️⚠️⚠️ EXIGENCE CRITIQUE DE FORMAT ⚠️⚠️⚠️
+
+TU ES UN EXPERT SENIOR EN REFACTORING PYTHON.
+
+Ta réponse DOIT être UNIQUEMENT le JSON ci-dessous, **ENTIÈREMENT EN FRANÇAIS**.
+AUCUNE explication, AUCUN bloc markdown, AUCUN texte avant/après.
+Commence par `{` sur la première ligne, termine par `}` sur la dernière.
+
+## 🎯 Ta Mission
+
+Analyse les méthodes sélectionnées et propose un plan de refactoring structuré et parsable.
+
+**GÉNÈRE EXACTEMENT cette structure JSON :**
+
+{
+  "executive_summary": {
+    "severity": "HIGH|MEDIUM|LOW",
+    "primary_issue": "Problème architectural principal identifié (1 phrase)",
+    "refactoring_urgency": "Élevée|Moyenne|Faible - Justification brève",
+    "affected_methods_count": {{ num_tasks }},
+    "estimated_total_effort": "X heures|jours"
+  },
+  
+  "critical_issues_prioritized": [
+    {
+      "priority": "P0|P1|P2",
+      "category": "architecture|complexité|duplication|documentation|performance",
+      "issue": "Titre clair du problème (max 60 caractères)",
+      "affected_methods": [{% for task in selected_tasks %}"{{ task['method_name'] }}"{% if not loop.last %}, {% endif %}{% endfor %}],
+      "description": "Explication détaillée du problème (2-3 phrases)",
+      "impact": "Pourquoi ça nuit à la maintenabilité (en français)",
+      "solution": "Étapes concrètes de refactoring",
+      "effort": "X heures",
+      "benefits": [
+        "Bénéfice 1",
+        "Bénéfice 2"
+      ]
+    }
+  ],
+  
+  "targeted_refactoring_plan": {
+    "philosophy": "Stratégie globale de refactoring (2-3 phrases)",
+    
+    "phase_1_extraction_methodes": {
+      "duration": "X heures",
+      "priority": "P0",
+      "goal": "Objectif de cette phase",
+      "tasks": [
+        "Tâche spécifique 1",
+        "Tâche spécifique 2",
+        "Tâche spécifique 3"
+      ],
+      "result": {
+        "methods_created": ["methode_1", "methode_2"],
+        "lines_reduced": "~XXX lignes",
+        "complexity_improvement": "De CRITIQUE à MOYENNE"
+      }
+    },
+    
+    "phase_2_organisation_code": {
+      "duration": "X heures",
+      "priority": "P1",
+      "goal": "Objectif de cette phase",
+      "tasks": [
+        "Tâche spécifique 1",
+        "Tâche spécifique 2"
+      ],
+      "result": {
+        "files_created": ["nouveau_fichier.py"],
+        "responsibility_separation": "Description"
+      }
+    },
+    
+    "phase_3_tests_documentation": {
+      "duration": "X heures",
+      "priority": "P2",
+      "goal": "Objectif de cette phase",
+      "tasks": [
+        "Tâche spécifique 1",
+        "Tâche spécifique 2"
+      ],
+      "result": {
+        "test_coverage": "XX%",
+        "documentation": "Complete"
+      }
+    }
+  },
+  
+  "method_by_method_refactoring": {
+{% for task in selected_tasks %}
+    "{{ task['method_name'] }}": {
+      "current_state": {
+        "lines": "A ESTIMER",
+        "complexity": "CRITIQUE|ÉLEVÉE|MOYENNE",
+        "main_issues": ["Problème 1 à identifier", "Problème 2 à identifier"]
+      },
+      "refactoring_approach": "Comment refactorer cette méthode spécifique",
+      "split_into": [
+        {
+          "method": "_{{ task['method_name'] }}_partie_1",
+          "responsibility": "Première responsabilité extraite",
+          "lines_est": 15,
+          "complexity": "FAIBLE"
+        },
+        {
+          "method": "_{{ task['method_name'] }}_partie_2",
+          "responsibility": "Deuxième responsabilité extraite",
+          "lines_est": 20,
+          "complexity": "MOYENNE"
+        }
+      ],
+      "new_orchestrator": {
+        "method": "{{ task['method_name'] }}",
+        "lines_est": 10,
+        "role": "Orchestrateur léger qui coordonne les méthodes extraites"
+      }
+    }{% if not loop.last %},{% endif %}
+{% endfor %}
+  },
+  
+  "immediate_quick_wins": [
+    {
+      "action": "Action rapide à faire (max 60 caractères)",
+      "effort": "X heures",
+      "impact": "HIGH|MEDIUM - Description du bénéfice",
+      "priority": "P0",
+      "steps": [
+        "Étape 1",
+        "Étape 2",
+        "Étape 3"
+      ]
+    }
+  ],
+  
+  "risk_assessment": {
+    "regression_risque": {
+      "level": "ÉLEVÉ|MOYEN|FAIBLE",
+      "description": "Ce qui pourrait casser",
+      "mitigation": "Comment le prévenir",
+      "rollback_plan": "Comment annuler si ça échoue"
+    },
+    "integration_risque": {
+      "level": "ÉLEVÉ|MOYEN|FAIBLE",
+      "description": "Impact sur le reste du code",
+      "mitigation": "Tests à faire"
+    }
+  },
+  
+  "success_metrics": {
+    "before_refactoring": {
+      "methods": {{ num_tasks }},
+      "total_lines": "A CALCULER",
+      "complexity_critical_count": "A ANALYSER"
+    },
+    "after_refactoring": {
+      "methods": "X",
+      "total_lines": "X",
+      "complexity_critical_count": "0",
+      "maintainability_improvement": "+XX%"
+    }
+  },
+  
+  "total_effort_estimate": {
+    "phase_1": "X heures",
+    "phase_2": "X heures",
+    "phase_3": "X heures",
+    "total": "X heures",
+    "with_buffer_20_percent": "X heures",
+    "note": "Pourquoi cette estimation"
+  },
+  
+  "recommendation": {
+    "priority": "ÉLEVÉE|MOYENNE|FAIBLE - Quand commencer",
+    "approach": "Résumé de la stratégie recommandée",
+    "rationale": "Pourquoi cette approche",
+    "quick_start": [
+      "Jour 1: Premières étapes",
+      "Jour 2: Étapes suivantes",
+      "Jour 3: Finalisation"
+    ]
+  }
+}
+
+═══════════════════════════════════════════════════════════════════════════════
+📋 CHECKLIST DE VALIDATION JSON
+═══════════════════════════════════════════════════════════════════════════════
+
+Avant de soumettre, vérifie:
+✅ La réponse commence par `{` (pas de texte avant)
+✅ La réponse termine par `}` (pas de texte après)
+✅ Toutes les chaînes utilisent des guillemets doubles "..." pas simples '...'
+✅ Pas de virgules traînantes dans les tableaux/objets
+✅ TOUT LE CONTENU TEXTUEL EST EN FRANÇAIS
+✅ executive_summary existe et est rempli
+✅ critical_issues_prioritized a 3-7 items minimum
+✅ targeted_refactoring_plan a des phases avec tâches concrètes
+✅ immediate_quick_wins a 3-5 actions
+✅ method_by_method_refactoring couvre toutes les méthodes sélectionnées
+
+GÉNÈRE UNIQUEMENT DU JSON PUR EN FRANÇAIS. PAS DE MARKDOWN. PAS D'EXPLICATIONS.
+Premier caractère: {
+Dernier caractère: }

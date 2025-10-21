@@ -1,0 +1,2755 @@
+"""
+AI PingPong Analyzer V3 - MVP GUI avec sélection tasks
+"""
+
+TASKS_FILENAME = '.ai_pingpong_tasks.json'
+ANALYSIS_FILENAME = '.ai_pingpong_analysis.json'
+
+import sys, os
+import json
+from pathlib import Path
+from PySide6.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QPushButton, QLabel, QTextEdit, QFileDialog, QComboBox, 
+    QCheckBox, QLineEdit, QSplitter, QMessageBox, QTreeWidget, QTreeWidgetItem,
+    QTreeWidgetItemIterator, QTabWidget, QListWidget, QListWidgetItem ,QFrame ,
+    QScrollArea,QGridLayout,QDialog
+)
+from datetime import datetime 
+
+from PySide6.QtCore import Qt, QItemSelectionModel 
+from PySide6.QtGui import QFont
+
+# Import core modules
+from core.project_analyzer import ProjectAnalyzer
+from core.task_manager import TaskManager
+from core.prompt_composer import PromptComposer
+from core.conversation_manager import ConversationManager
+from core.project_loader import ProjectLoader
+from backlog_tab import BacklogTab
+
+
+class SimplePingPongGUI(QMainWindow):
+    """GUI avec sélection manuelle des tasks."""
+    
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("AI PingPong Analyzer V3 - Task Selector")
+        self.setGeometry(100, 100, 1600, 900)
+        #HARCODING /
+        self.target_file4card = ""
+        # === DARK MODE MATRIX ===
+        self._apply_dark_theme()
+        
+        # Core components
+        self.project_path = None
+        self.project_loader = None 
+        self.analysis = None
+        self.task_manager = TaskManager()
+        self.composer = PromptComposer()
+        self.conversation = ConversationManager()
+        
+        # === AJOUTE CES 3 LIGNES ICI === 
+        self.tasks = []
+        self.next_task_id = 1
+        self.selected_task = None
+        # ==============================
+        self.tasks = []
+        self.setup_ui()
+        self._refresh_dashboard()
+        self._load_tasks()
+    def _apply_dark_theme(self):
+        """Apply Matrix-style dark theme."""
+        self.setStyleSheet("""
+            QMainWindow, QWidget {
+                background-color: #0d1117;
+                color: #c9d1d9;
+            }
+            
+            QTreeWidget {
+                background-color: #161b22;
+                color: #c9d1d9;
+                border: 1px solid #30363d;
+                border-radius: 6px;
+            }
+            QTreeWidget::item:selected {
+                background-color: #238636;
+                color: white;
+            }
+            QTreeWidget::item:hover {
+                background-color: #21262d;
+            }
+            
+            QLabel {
+                color: #c9d1d9;
+            }
+            
+            QPushButton {
+                background-color: #21262d;
+                color: #c9d1d9;
+                border: 1px solid #30363d;
+                padding: 8px 16px;
+                border-radius: 6px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #30363d;
+                border-color: #58a6ff;
+            }
+            QPushButton:pressed {
+                background-color: #161b22;
+            }
+            
+            QTextEdit {
+                background-color: #0d1117;
+                color: #58ff58;
+                border: 1px solid #30363d;
+                border-radius: 6px;
+                font-family: 'Consolas', 'Courier New', monospace;
+                padding: 8px;
+            }
+            
+            QLineEdit, QComboBox {
+                background-color: #0d1117;
+                color: #c9d1d9;
+                border: 1px solid #30363d;
+                padding: 8px;
+                border-radius: 6px;
+            }
+            QComboBox:hover, QLineEdit:focus {
+                border-color: #58a6ff;
+            }
+            
+            QCheckBox {
+                color: #c9d1d9;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #238636;
+                border: 2px solid #238636;
+            }
+            
+            QScrollBar:vertical {
+                background-color: #161b22;
+                width: 12px;
+                border-radius: 6px;
+            }
+            QScrollBar::handle:vertical {
+                background-color: #30363d;
+                border-radius: 6px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background-color: #484f58;
+            }
+            
+            QStatusBar {
+                background-color: #161b22;
+                color: #58ff58;
+                border-top: 1px solid #30363d;
+            }
+        """)
+    def setup_ui(self):
+        """Setup interface 3 colonnes."""
+        central = QWidget()
+        self.setCentralWidget(central)
+        layout = QVBoxLayout(central)
+        
+        # === HEADER ===
+        header = QHBoxLayout()
+        
+        self.btn_select = QPushButton("📁 Select Project")
+        self.btn_select.clicked.connect(self.select_project)
+        header.addWidget(self.btn_select)
+        
+        self.lbl_project = QLabel("No project selected")
+        self.lbl_project.setStyleSheet("color: #666; font-style: italic;")
+        header.addWidget(self.lbl_project)
+        
+        header.addStretch()
+        
+        self.btn_analyze = QPushButton("🔍 Analyze Project")
+        self.btn_analyze.clicked.connect(self.analyze_project)
+        self.btn_analyze.setEnabled(False)
+        header.addWidget(self.btn_analyze)
+        
+        layout.addLayout(header)
+        
+        # === MAIN LAYOUT: Tabs (gauche) + Prompt (droite fixe) ===
+        main_container = QWidget()
+        main_container_layout = QHBoxLayout(main_container)
+        main_container_layout.setContentsMargins(0, 0, 0, 0)
+        main_container_layout.setSpacing(5)
+
+        # === TABS (gauche) ===
+        self.tabs = QTabWidget()
+        self.tabs.setStyleSheet("""
+            QTabWidget::pane {
+                background: #0d1117;
+                border: 1px solid #30363d;
+            }
+            QTabBar::tab {
+                background: #161b22;
+                color: #8b949e;
+                border: 1px solid #30363d;
+                padding: 10px 24px;
+                margin-right: 2px;
+                font: bold 10pt 'Consolas';
+            }
+            QTabBar::tab:selected {
+                background: #0d1117;
+                color: #58a6ff;
+                border-bottom: 3px solid #58a6ff;
+            }
+            QTabBar::tab:hover {
+                background: #1f2937;
+                color: #c9d1d9;
+            }
+        """)
+
+        # === ONGLET 1: TASK_SELECTOR ===
+        task_selector_tab = QWidget()
+        task_selector_layout = QHBoxLayout(task_selector_tab)
+        task_selector_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Create panels
+        left_panel = self._create_left_panel()
+        center_panel = self._create_center_panel()
+
+        task_selector_layout.addWidget(left_panel, 1)
+        task_selector_layout.addWidget(center_panel, 2)
+
+        self.tabs.addTab(task_selector_tab, "TASK_SELECTOR")
+
+        # === ONGLET 2: BACKLOG ===
+        
+        self.backlog_tab_widget = BacklogTab(self)
+        self.tabs.addTab(self.backlog_tab_widget, "BACKLOG")
+        self._load_tasks()
+        if hasattr(self, 'backlog_tab_widget') and hasattr(self, 'tasks'):
+            self.backlog_tab_widget.set_tasks(self.tasks)
+            self.backlog_tab_widget._apply_filters()
+        self.backlog_tab_widget.task_selected.connect(self._on_backlog_task_selected)
+        self.backlog_tab_widget.tasks_updated.connect(self._on_backlog_tasks_updated)
+        # Sauvegarder automatiquement quand tasks modifiées
+        self.backlog_tab_widget.tasks_updated.connect(self._on_backlog_changed)
+        self.backlog_tab_widget.tasks_updated.connect(self._save_tasks)
+        self.backlog_tab_widget.refresh()
+
+        # Add tabs to main container (gauche)
+        main_container_layout.addWidget(self.tabs, 3)
+
+        # === PROMPT PANEL (droite fixe) ===
+        right_panel = self._create_right_panel()
+        main_container_layout.addWidget(right_panel, 1)
+
+        # Add main container to window
+        layout.addWidget(main_container, 1)
+
+                
+        # Status bar
+        self.statusBar().showMessage("Ready - Select a project to start")
+        
+        # Initialize
+        self.tasks = []
+        self.next_task_id = 1
+        self.selected_task = None
+    
+    def _on_backlog_changed(self):
+        """Callback quand backlog change."""
+        if self.project_loader and hasattr(self, 'backlog_tab'):
+            tasks = self.backlog_tab.get_selected_tasks()
+            self.project_loader.save_tasks(tasks)    
+    def _on_backlog_task_selected(self, task):
+        # === FIX ===
+        if isinstance(task, str):
+            task = next((t for t in self.tasks if t.get('id') == task), None)
+            if not task:
+                return
+        
+        print(f"Task selected: {task.get('title')}")
+
+    def _on_backlog_tasks_updated(self):
+        """Callback quand tasks modifiées."""
+        self._save_tasks()
+
+    def _create_left_panel(self):
+        """Panneau gauche: Tree methods."""
+        panel = QWidget()
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Title
+        title = QLabel("📋 Select Methods")
+        title.setStyleSheet("font-weight: bold; font-size: 11pt; padding: 8px;")
+        layout.addWidget(title)
+        
+        # Tree
+        self.task_tree = QTreeWidget()
+        self.task_tree.setHeaderLabels(["Component", "Type", "Line"])
+        self.task_tree.itemChanged.connect(self.on_task_selection_changed)
+        layout.addWidget(self.task_tree)
+        
+        # Selection counter
+        self.lbl_selection = QLabel("0 tasks selected")
+        self.lbl_selection.setStyleSheet("font-weight: bold; padding: 8px;")
+        layout.addWidget(self.lbl_selection)
+        
+        return panel
+
+    def _create_center_panel(self):
+        """Panneau centre: Inspecteur + Tasks."""
+        panel = QWidget()
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(5, 5, 5, 5)
+        
+        # === STATS PANEL (BRUTALISTE) ===
+        stats_frame = QFrame()
+        stats_frame.setFixedHeight(32)
+        stats_frame.setStyleSheet("""
+            QFrame {
+                background: #0d1117;
+                border-top: 1px solid #30363d;
+                border-bottom: 1px solid #30363d;
+            }
+        """)
+        
+        stats_layout = QHBoxLayout(stats_frame)
+        stats_layout.setSpacing(12)
+        stats_layout.setContentsMargins(12, 0, 12, 0)
+        
+        # Priority
+        self.lbl_high = QLabel("H:0")
+        self.lbl_high.setStyleSheet("color: #ff6b6b; font: 10pt 'Consolas';")
+        
+        self.lbl_medium = QLabel("M:0")
+        self.lbl_medium.setStyleSheet("color: #ffa500; font: 10pt 'Consolas';")
+        
+        self.lbl_low = QLabel("L:0")
+        self.lbl_low.setStyleSheet("color: #51cf66; font: 10pt 'Consolas';")
+        
+        stats_layout.addWidget(self.lbl_high)
+        stats_layout.addWidget(self.lbl_medium)
+        stats_layout.addWidget(self.lbl_low)
+        
+        # Separator
+        sep1 = QLabel("|")
+        sep1.setStyleSheet("color: #30363d;")
+        stats_layout.addWidget(sep1)
+        
+        # Status
+        self.lbl_todo = QLabel("TODO:0")
+        self.lbl_todo.setStyleSheet("color: #8b949e; font: 10pt 'Consolas';")
+        
+        self.lbl_progress = QLabel("PROG:0")
+        self.lbl_progress.setStyleSheet("color: #58a6ff; font: 10pt 'Consolas';")
+        
+        self.lbl_done = QLabel("DONE:0")
+        self.lbl_done.setStyleSheet("color: #3fb950; font: 10pt 'Consolas';")
+        
+        stats_layout.addWidget(self.lbl_todo)
+        stats_layout.addWidget(self.lbl_progress)
+        stats_layout.addWidget(self.lbl_done)
+        
+        stats_layout.addStretch()
+        
+        # Total
+        self.lbl_total = QLabel("TOTAL:0")
+        self.lbl_total.setStyleSheet("color: #c9d1d9; font: bold 10pt 'Consolas';")
+        stats_layout.addWidget(self.lbl_total)
+        
+        # Force visibility
+        stats_frame.setVisible(True)
+        self.lbl_high.setVisible(True)
+        self.lbl_medium.setVisible(True)
+        self.lbl_low.setVisible(True)
+        self.lbl_todo.setVisible(True)
+        self.lbl_progress.setVisible(True)
+        self.lbl_done.setVisible(True)
+        self.lbl_total.setVisible(True)
+        
+        layout.addWidget(stats_frame)
+        
+        # === METHOD INSPECTOR (widget first, add to splitter later) ===
+        self.inspector_widget = QWidget()
+        inspector_layout = QVBoxLayout(self.inspector_widget)
+        
+        # Title
+        title_label = QLabel("METHOD_INSPECTOR")
+        title_label.setStyleSheet("font: bold 10pt 'Consolas'; color: #58a6ff; padding: 8px;")
+        inspector_layout.addWidget(title_label)
+        
+        # Inspector frame
+        self.inspector_frame = QFrame()
+        self.inspector_frame.setFrameShape(QFrame.StyledPanel)
+        self.inspector_frame.setStyleSheet("""
+            QFrame {
+                background: #0d1117;
+                border: 1px solid #30363d;
+            }
+        """)
+        
+        self.inspector_layout = QVBoxLayout(self.inspector_frame)
+        
+        # Method info labels
+        self.lbl_method_name = QLabel("NO_METHOD")
+        self.lbl_method_name.setStyleSheet("font: bold 11pt 'Consolas'; color: #58a6ff;")
+        self.inspector_layout.addWidget(self.lbl_method_name)
+        
+        self.lbl_method_file = QLabel("")
+        self.lbl_method_file.setStyleSheet("font: 9pt 'Consolas'; color: #8b949e;")
+        self.inspector_layout.addWidget(self.lbl_method_file)
+        
+        self.lbl_method_class = QLabel("")
+        self.lbl_method_class.setStyleSheet("font: 9pt 'Consolas'; color: #8b949e;")
+        self.inspector_layout.addWidget(self.lbl_method_class)
+        
+        self.lbl_method_line = QLabel("")
+        self.lbl_method_line.setStyleSheet("font: 9pt 'Consolas'; color: #8b949e;")
+        self.inspector_layout.addWidget(self.lbl_method_line)
+        
+        # Separator
+        line = QFrame()
+        line.setFrameShape(QFrame.HLine)
+        line.setStyleSheet("background: #30363d;")
+        self.inspector_layout.addWidget(line)
+        
+        # Signature
+        sig_label = QLabel("SIGNATURE:")
+        sig_label.setStyleSheet("font: bold 9pt 'Consolas'; color: #c9d1d9; margin-top: 8px;")
+        self.inspector_layout.addWidget(sig_label)
+        
+        self.lbl_signature = QLabel("")
+        self.lbl_signature.setStyleSheet("""
+            font: 9pt 'Consolas';
+            background: #161b22;
+            color: #58ff58;
+            padding: 6px;
+            border: 1px solid #30363d;
+        """)
+        self.lbl_signature.setWordWrap(True)
+        self.inspector_layout.addWidget(self.lbl_signature)
+        
+        # Code preview
+        code_label = QLabel("CODE:")
+        code_label.setStyleSheet("font: bold 9pt 'Consolas'; color: #c9d1d9; margin-top: 8px;")
+        self.inspector_layout.addWidget(code_label)
+        
+        self.text_code_preview = QTextEdit()
+        self.text_code_preview.setReadOnly(True)
+        self.text_code_preview.setFont(QFont("Consolas", 9))
+        self.text_code_preview.setMaximumHeight(200)
+        self.text_code_preview.setStyleSheet("""
+            background: #0d1117;
+            color: #58ff58;
+            border: 1px solid #30363d;
+        """)
+        self.inspector_layout.addWidget(self.text_code_preview)
+        
+        # Docstring
+        docstring_label = QLabel("DOCSTRING:")
+        docstring_label.setStyleSheet("font: bold 9pt 'Consolas'; color: #c9d1d9; margin-top: 8px;")
+        self.inspector_layout.addWidget(docstring_label)
+        
+        self.text_docstring = QTextEdit()
+        self.text_docstring.setReadOnly(True)
+        self.text_docstring.setFont(QFont("Consolas", 9))
+        self.text_docstring.setMaximumHeight(80)
+        self.text_docstring.setStyleSheet("""
+            background: #161b22;
+            color: #8b949e;
+            border: 1px solid #30363d;
+        """)
+        self.text_docstring.setPlaceholderText("NO_DOCSTRING")
+        self.inspector_layout.addWidget(self.text_docstring)
+        
+        # Stats
+        stats_h = QHBoxLayout()
+        self.lbl_complexity = QLabel("COMPLEXITY:-")
+        self.lbl_complexity.setStyleSheet("font: 9pt 'Consolas'; color: #8b949e;")
+        self.lbl_lines = QLabel("LINES:-")
+        self.lbl_lines.setStyleSheet("font: 9pt 'Consolas'; color: #8b949e;")
+        stats_h.addWidget(self.lbl_complexity)
+        stats_h.addWidget(self.lbl_lines)
+        stats_h.addStretch()
+        self.inspector_layout.addLayout(stats_h)
+        
+        # Actions
+        actions_h = QHBoxLayout()
+        
+        self.btn_create_task = QPushButton("[+] CREATE_TASK")
+        self.btn_create_task.clicked.connect(self.create_task_from_selected_method)
+        self.btn_create_task.setStyleSheet("""
+            QPushButton {
+                background: #0d1117;
+                color: #3fb950;
+                border: 2px solid #3fb950;
+                padding: 8px 16px;
+                font: bold 10pt 'Consolas';
+            }
+            QPushButton:hover {
+                background: #3fb950;
+                color: #0d1117;
+            }
+        """)
+        actions_h.addWidget(self.btn_create_task)
+        
+        self.btn_no_issue = QPushButton("[X] NO_ISSUE")
+        self.btn_no_issue.clicked.connect(self.mark_no_issue)
+        self.btn_no_issue.setStyleSheet("""
+            QPushButton {
+                background: #0d1117;
+                color: #8b949e;
+                border: 2px solid #30363d;
+                padding: 8px 16px;
+                font: bold 10pt 'Consolas';
+            }
+            QPushButton:hover {
+                background: #30363d;
+            }
+        """)
+        actions_h.addWidget(self.btn_no_issue)
+        
+        self.inspector_layout.addLayout(actions_h)
+        
+        inspector_layout.addWidget(self.inspector_frame)
+        
+        # Hide inspector initially
+        self.inspector_widget.setVisible(False)
+        
+        # === TASKS BOARD (RESIZABLE) ===
+        # Create splitter AFTER inspector widget is created
+        tasks_splitter = QSplitter(Qt.Vertical)
+        tasks_splitter.setHandleWidth(4)
+        tasks_splitter.setStyleSheet("""
+            QSplitter::handle {
+                background: #30363d;
+            }
+            QSplitter::handle:hover {
+                background: #58a6ff;
+            }
+        """)
+        
+        # Add inspector to splitter
+        tasks_splitter.addWidget(self.inspector_widget)
+        
+        # Tasks panel
+        tasks_panel = QWidget()
+        tasks_panel_layout = QVBoxLayout(tasks_panel)
+        tasks_panel_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Tasks header avec bouton NEW
+        tasks_header = QHBoxLayout()
+
+        tasks_label = QLabel("TASKS_CREATED")
+        tasks_label.setStyleSheet("font: bold 10pt 'Consolas'; color: #c9d1d9; padding: 8px;")
+        tasks_header.addWidget(tasks_label)
+
+        tasks_header.addStretch()
+
+        # NEW TASK button
+        self.btn_new_task = QPushButton("[+] NEW")
+        self.btn_new_task.setFixedHeight(28)
+        self.btn_new_task.setToolTip("Create new task (inline editing)")
+        self.btn_new_task.setStyleSheet("""
+            QPushButton {
+                background: #0d1117;
+                color: #3fb950;
+                border: 2px solid #3fb950;
+                padding: 4px 12px;
+                font: bold 9pt 'Consolas';
+            }
+            QPushButton:hover {
+                background: #3fb950;
+                color: #0d1117;
+            }
+        """)
+        self.btn_new_task.clicked.connect(self._create_new_task_inline)
+        tasks_header.addWidget(self.btn_new_task)
+
+        tasks_panel_layout.addLayout(tasks_header)
+
+        
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("border: none;")
+        
+        self.board_widget = QWidget()
+        self.board_layout = QGridLayout(self.board_widget)
+        self.board_layout.setSpacing(8)
+        
+        scroll.setWidget(self.board_widget)
+        tasks_panel_layout.addWidget(scroll)
+        
+        tasks_splitter.addWidget(tasks_panel)
+        
+        # Set initial sizes (inspector 70%, tasks 30%)
+        tasks_splitter.setSizes([700, 300])
+        
+        layout.addWidget(tasks_splitter, 1)
+        
+        return panel
+
+    def _create_right_panel(self):
+        """Panneau droite: Prompt/Response."""
+        panel = QWidget()
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+        
+        # === PROMPT GENERATION ===
+        prompt_group = QWidget()
+        prompt_layout = QVBoxLayout(prompt_group)
+        
+        # Controls
+        controls = QHBoxLayout()
+        
+        controls.addWidget(QLabel("Template:"))
+        self.combo_template = QComboBox()
+        self.combo_template.addItems(['debug_bug', 'feature_new', 'refactor_code', 'refactor_file'])
+        controls.addWidget(self.combo_template)
+        
+        self.check_code_mode = QCheckBox("🔥 Code")
+        controls.addWidget(self.check_code_mode)
+        
+        prompt_layout.addLayout(controls)
+        
+        # Description
+        desc_layout = QHBoxLayout()
+        desc_layout.addWidget(QLabel("Desc:"))
+        self.input_description = QLineEdit()
+        self.input_description.setPlaceholderText("Bug/feature/refactor...")
+        desc_layout.addWidget(self.input_description, 1)
+        prompt_layout.addLayout(desc_layout)
+        
+        # Generate button
+        self.btn_generate = QPushButton("✨ Generate Prompt")
+        self.btn_generate.clicked.connect(self.generate_prompt)
+        self.btn_generate.setEnabled(False)
+        prompt_layout.addWidget(self.btn_generate)
+        
+        # Prompt text
+        prompt_layout.addWidget(QLabel("📝 Generated Prompt"))
+        self.text_prompt = QTextEdit()
+        self.text_prompt.setReadOnly(True)
+        self.text_prompt.setFont(QFont("Consolas", 9))
+        prompt_layout.addWidget(self.text_prompt, 2)
+        
+        # Copy button
+        self.btn_copy_prompt = QPushButton("📋 Copy Prompt")
+        self.btn_copy_prompt.clicked.connect(self.copy_prompt)
+        prompt_layout.addWidget(self.btn_copy_prompt)
+        
+        layout.addWidget(prompt_group, 1)
+        
+        # === RESPONSE ===
+        response_group = QWidget()
+        response_layout = QVBoxLayout(response_group)
+        
+        response_layout.addWidget(QLabel("💬 AI Response (JSON)"))
+        self.text_response = QTextEdit()
+        self.text_response.setFont(QFont("Consolas", 9))
+        self.text_response.setPlaceholderText("Paste AI JSON here...")
+        response_layout.addWidget(self.text_response, 1)
+        
+        self.btn_parse = QPushButton("🔄 Parse & Create Tasks")
+        self.btn_parse.clicked.connect(self.parse_response)
+        response_layout.addWidget(self.btn_parse)
+        
+        layout.addWidget(response_group, 1)
+        btn_new = QPushButton("➕ New Task")
+        btn_new.clicked.connect(self.create_manual_task)
+        layout.addWidget(btn_new)
+
+        return panel
+    
+    def create_manual_task(self):
+        """Dialog pour créer task manuellement."""
+        from PySide6.QtWidgets import QDialog, QFormLayout, QDialogButtonBox
+        
+        dialog = QDialog(self)
+        dialog.setWindowTitle("➕ New Task")
+        dialog.setMinimumWidth(400)
+        
+        layout = QFormLayout(dialog)
+        
+        title = QLineEdit()
+        title.setPlaceholderText("Task title...")
+        
+        desc = QTextEdit()
+        desc.setPlaceholderText("Description...")
+        desc.setMaximumHeight(100)
+        
+        type_combo = QComboBox()
+        type_combo.addItems(["bug", "feature", "refactor", "docs"])
+        
+        priority_combo = QComboBox()
+        priority_combo.addItems(["high", "medium", "low"])
+        
+        layout.addRow("Title:", title)
+        layout.addRow("Description:", desc)
+        layout.addRow("Type:", type_combo)
+        layout.addRow("Priority:", priority_combo)
+        
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addRow(buttons)
+        
+        if dialog.exec() == QDialog.Accepted:
+            if not title.text():
+                QMessageBox.warning(self, "Missing Title", "Please enter a title!")
+                return
+            
+            task = {
+                'id': self.next_task_id,
+                'title': title.text(),
+                'description': desc.toPlainText(),
+                'type': type_combo.currentText(),
+                'priority': priority_combo.currentText(),
+                'status': 'todo',
+                'methods': [],
+                'created_at': datetime.now()
+            }
+            
+            self.tasks.append(task)
+            self.next_task_id += 1
+            self._refresh_dashboard()
+            
+            self.statusBar().showMessage(f"✅ Task '{task['title']}' created!")
+
+    def _refresh_dashboard(self):
+        """Refresh dashboard."""
+        # Clear board
+        for i in reversed(range(self.board_layout.count())): 
+            widget = self.board_layout.itemAt(i).widget()
+            if widget:
+                widget.deleteLater()
+        
+        # Stats
+        high = sum(1 for t in self.tasks if t.get('priority') == 'high')
+        medium = sum(1 for t in self.tasks if t.get('priority') == 'medium')
+        low = sum(1 for t in self.tasks if t.get('priority') == 'low')
+        
+        todo = sum(1 for t in self.tasks if t.get('status') == 'todo')
+        progress = sum(1 for t in self.tasks if t.get('status') == 'in_progress')
+        done = sum(1 for t in self.tasks if t.get('status') == 'done')
+        
+        total = len(self.tasks)
+        
+        # ✅ DÉLÉGUER AU BACKLOG TAB
+        if hasattr(self, 'backlog_tab_widget'):
+            self.backlog_tab_widget.set_tasks(self.tasks)
+        
+    def _save_task_inline(self, task):
+        """Save inline edits."""
+        task['_editing'] = False
+        self._refresh_dashboard()
+        self._save_tasks()
+        self.statusBar().showMessage(f"Task saved: {task.get('title', 'NO_TITLE')}", 3000)
+
+    def _create_new_task_inline(self):
+        """Crée une task vide éditable inline."""
+        from datetime import datetime
+        
+        new_task = {
+            'id': self.next_task_id,
+            'title': '[EDIT_ME]',
+            'description': 'Click to edit description...',
+            'priority': 'medium',
+            'status': 'todo',
+            'methods': [],
+            'created_at': datetime.now(),
+            '_editing': True
+        }
+        
+        self.next_task_id += 1
+        self.tasks.insert(0, new_task)
+        self._refresh_dashboard()
+        
+        # === FIX: Sauvegarder après création ===
+        self._save_tasks()
+        
+        self.statusBar().showMessage("New task created - click to edit", 3000)
+    
+    def closeEvent(self, event):
+        """Handler fermeture application."""
+        
+        # Sauvegarder tasks avant de quitter
+        if hasattr(self, 'backlog_tasks') and self.tasks:
+            print("Saving tasks on exit...")
+            self._save_tasks()
+        
+        # Accepter fermeture
+        event.accept()
+
+    def _cycle_task_status(self, task):
+        """Cycle status: todo -> in_progress -> done -> todo."""
+        statuses = ['todo', 'in_progress', 'done']
+        current = task.get('status', 'todo')
+        current_idx = statuses.index(current) if current in statuses else 0
+        next_idx = (current_idx + 1) % len(statuses)
+        task['status'] = statuses[next_idx]
+        self._refresh_dashboard()
+        self._save_tasks()
+
+    def _cycle_task_priority(self, task):
+        """Cycle priority: low -> medium -> high -> low."""
+        priorities = ['low', 'medium', 'high']
+        current = task.get('priority', 'medium')
+        current_idx = priorities.index(current) if current in priorities else 1
+        next_idx = (current_idx + 1) % len(priorities)
+        task['priority'] = priorities[next_idx]
+        self._refresh_dashboard()
+        self._save_tasks()
+
+    def _delete_task(self, task):
+        """Supprime une task."""
+        reply = QMessageBox.question(
+            self,
+            'DELETE_TASK',
+            f"Delete task: {task.get('title', 'NO_TITLE')}?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        
+        if reply == QMessageBox.Yes:
+            self.tasks.remove(task)
+            self._refresh_dashboard()
+            self._save_tasks()
+            self.statusBar().showMessage(f"Task deleted", 3000)
+
+    def _edit_task(self, task):
+        """Édition inline dans une zone dépliable."""
+        if task.get('_editing'):
+            task['_editing'] = False
+            
+            # === FIX: Sauvegarder quand on ferme l'édition ===
+            self._save_tasks()
+        else:
+            for t in self.tasks:
+                t['_editing'] = False
+            task['_editing'] = True
+        
+        self._refresh_dashboard()
+
+    def _save_tasks(self):
+        """Save backlog tasks to JSON file."""
+        if not self.project_path:
+            return
+        
+        from pathlib import Path
+        import json
+        
+        tasks_file = Path(self.project_path) / '.ai_pingpong_tasks.json'
+        
+        # Convert datetime to string for JSON
+        tasks_data = []
+        for task in self.tasks:
+            task_copy = task.copy()
+            
+            # Convert datetime to ISO format string
+            if 'created_at' in task_copy and hasattr(task_copy['created_at'], 'isoformat'):
+                task_copy['created_at'] = task_copy['created_at'].isoformat()
+            
+            tasks_data.append(task_copy)
+        
+        try:
+            with open(tasks_file, 'w', encoding='utf-8') as f:
+                json.dump(tasks_data, f, indent=2, ensure_ascii=False)
+            
+            print(f"✓ Saved {len(tasks_data)} tasks to {tasks_file}")
+        except Exception as e:
+            print(f"✗ Error saving tasks: {e}")
+
+    def _load_tasks(self):
+        """Charge tasks depuis fichier JSON."""
+        from pathlib import Path
+        import json
+        
+        tasks_file = Path("data") / "tasks.json"
+        
+        # === FIX : Initialiser self.tasks AVANT tout ===
+        if not hasattr(self, 'tasks'):
+            self.tasks = []
+        
+        if not tasks_file.exists():
+            print("✓ Loaded 0 tasks")
+            return
+        
+        try:
+            with open(tasks_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                self.tasks = data.get('tasks', [])
+                
+            print(f"✓ Loaded {len(self.tasks)} tasks")
+            
+            # Update backlog - FIX: Vérifier que widget existe ET que méthode existe
+            if hasattr(self, 'backlog_tab_widget'):
+                # Utiliser set_tasks (pas update_tasks)
+                if hasattr(self.backlog_tab_widget, 'set_tasks'):
+                    self.backlog_tab_widget.set_tasks(self.tasks)
+                    self.backlog_tab_widget._apply_filters()
+
+                elif hasattr(self.backlog_tab_widget, 'update_tasks'):
+                    self.backlog_tab_widget.update_tasks(self.tasks)
+            self.backlog_tab_widget.refresh()
+        except Exception as e:
+            print(f"✗ Error loading tasks: {e}")
+            self.tasks = []
+
+    def _on_task_card_clicked(self, task):
+        """Handler quand card cliquée."""
+        self.selected_task = task
+        # TODO: Ouvrir dialog détails ou afficher dans panneau
+        QMessageBox.information(
+            self, 
+            task['title'],
+            f"{task['description']}\n\nMethods: {len(task.get('methods', []))}"
+        )
+
+    def _create_methods_tab(self):
+        """Crée l'onglet de sélection des méthodes."""
+        tab = QWidget()
+        tab_layout = QHBoxLayout(tab)
+        
+        # Main splitter: LEFT = Tasks, RIGHT = Prompt/Response
+        main_splitter = QSplitter(Qt.Horizontal)
+        
+        # === LEFT PANEL: Task Tree ===
+        left_widget = QWidget()
+        left_layout = QVBoxLayout(left_widget)
+        
+        left_layout.addWidget(QLabel("📋 Select Methods (check relevant ones)"))
+        
+        self.task_tree = QTreeWidget()
+        self.task_tree.setHeaderLabels(["Component", "Type", "Line"])
+        self.task_tree.itemChanged.connect(self.on_task_selection_changed)
+        left_layout.addWidget(self.task_tree)
+        
+        # Selection counter
+        self.lbl_selection = QLabel("0 tasks selected")
+        self.lbl_selection.setStyleSheet("font-weight: bold;")
+        left_layout.addWidget(self.lbl_selection)
+        
+        main_splitter.addWidget(left_widget)
+        
+        # === RIGHT PANEL: Prompt Generation ===
+        right_widget = QWidget()
+        right_layout = QVBoxLayout(right_widget)
+        
+        # Composer controls
+        composer_box = QHBoxLayout()
+        
+        composer_box.addWidget(QLabel("Template:"))
+        self.combo_template = QComboBox()
+        self.combo_template.addItems(['debug_bug', 'feature_new', 'refactor_code'])
+        composer_box.addWidget(self.combo_template)
+        
+        self.check_code_mode = QCheckBox("🔥 Code Mode")
+        self.check_code_mode.setToolTip("Code Mode = génération complète | OFF = analyse")
+        composer_box.addWidget(self.check_code_mode)
+        
+        composer_box.addWidget(QLabel("Description:"))
+        self.input_description = QLineEdit()
+        self.input_description.setPlaceholderText("Bug/feature/refactor description...")
+        composer_box.addWidget(self.input_description, 1)
+        
+        self.btn_generate = QPushButton("✨ Generate Prompt")
+        self.btn_generate.clicked.connect(self.generate_prompt)
+        self.btn_generate.setEnabled(False)
+        composer_box.addWidget(self.btn_generate)
+        
+        right_layout.addLayout(composer_box)
+        
+        # Prompt + Response splitter
+        prompt_splitter = QSplitter(Qt.Vertical)
+        
+        # Prompt area
+        prompt_widget = QWidget()
+        prompt_layout = QVBoxLayout(prompt_widget)
+        prompt_layout.addWidget(QLabel("📝 Generated Prompt (Copy to AI)"))
+        self.text_prompt = QTextEdit()
+        self.text_prompt.setReadOnly(True)
+        self.text_prompt.setFont(QFont("Consolas", 9))
+        prompt_layout.addWidget(self.text_prompt)
+        
+        self.btn_copy_prompt = QPushButton("📋 Copy Prompt")
+        self.btn_copy_prompt.clicked.connect(self.copy_prompt)
+        prompt_layout.addWidget(self.btn_copy_prompt)
+        
+        prompt_splitter.addWidget(prompt_widget)
+        
+        # Response area
+        response_widget = QWidget()
+        response_layout = QVBoxLayout(response_widget)
+        response_layout.addWidget(QLabel("💬 AI Response (Paste JSON here)"))
+        self.text_response = QTextEdit()
+        self.text_response.setFont(QFont("Consolas", 9))
+        self.text_response.setPlaceholderText("Paste AI JSON response here...")
+        response_layout.addWidget(self.text_response)
+        
+        self.btn_parse = QPushButton("🔄 Parse Response & Create Tasks")
+        self.btn_parse.clicked.connect(self.parse_response)
+        response_layout.addWidget(self.btn_parse)
+        
+        prompt_splitter.addWidget(response_widget)
+        
+        right_layout.addWidget(prompt_splitter)
+        
+        main_splitter.addWidget(right_widget)
+        
+        # Set splitter proportions (30% left, 70% right)
+        main_splitter.setSizes([500, 1100])
+        
+        tab_layout.addWidget(main_splitter)
+        
+        return tab
+
+    def _create_tasks_tab(self):
+        """Dashboard visuel moderne."""
+        from dashboard_view import DashboardView
+        
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        
+        # Dashboard
+        self.dashboard = DashboardView()
+        self.dashboard.task_clicked.connect(self._on_dashboard_task_clicked)
+        layout.addWidget(self.dashboard)
+        
+        return tab
+
+    def _on_dashboard_task_clicked(self, task):
+        """Quand une card est cliquée."""
+        # Ouvrir dialog détails
+        self._show_task_detail_dialog(task)
+
+    
+    def select_project(self):
+        """Sélectionne projet avec auto-load."""
+        folder = QFileDialog.getExistingDirectory(
+            self,
+            "Select Project Folder",
+            "",
+            QFileDialog.ShowDirsOnly
+        )
+        
+        if not folder:
+            return
+        
+        print(f"\n📂 Loading project: {folder}")
+        
+        self.project_path = folder
+        
+        # ✅ Update label
+        if hasattr(self, 'lblproject'):
+            self.lblproject.setText(f"Project: {os.path.basename(folder)}")
+            self.lblproject.setStyleSheet("color: #2ecc71; font-weight: bold;")
+        
+        self.setWindowTitle(f"AI PingPong - {os.path.basename(folder)}")
+        
+        # Créer loader
+        from core.project_loader import ProjectLoader
+        self.project_loader = ProjectLoader(folder)
+        
+        # Charger projet
+        try:
+            tasks, needs_analysis = self.project_loader.load_project()
+            
+            # ✅ UTILISE self.backlog_tab_widget
+            if tasks and hasattr(self, 'backlog_tab_widget'):
+                self.backlog_tab_widget.set_tasks(tasks)
+                self.statusBar().showMessage(f"Loaded {len(tasks)} tasks", 2000)
+            
+            # Lancer analyse si nécessaire
+            if needs_analysis:
+                self._start_analysis()
+                
+            else:
+                self.statusBar().showMessage("Project loaded (analysis up to date)", 3000)
+                
+                # ✅ UTILISE self.btnanalyze
+                if hasattr(self, 'btnanalyze'):
+                    self.btnanalyze.setText("Re-Analyze")
+        
+        except Exception as e:
+            print(f"❌ Error loading project: {e}")
+            import traceback
+            traceback.print_exc()
+            
+            self.statusBar().showMessage(f"Error loading project: {e}", 5000)
+
+    def _start_analysis(self):
+        """Lance analyse du projet."""
+        if not self.project_path:
+            return
+        
+        print(f"🔄 Starting analysis...")
+        
+        # ✅ UTILISE self.btnanalyze (pas analyze_button)
+        if hasattr(self, 'btnanalyze'):
+            self.btnanalyze.setEnabled(False)
+            self.btnanalyze.setText("Analyzing...")
+        
+        self.statusBar().showMessage("Analyzing project...", 0)
+        
+        try:
+            # Analyser
+            from core.project_analyzer import ProjectAnalyzer
+            self.analyzer = ProjectAnalyzer(self.project_path)
+            analysis_data = self.analyzer.analyze()
+            
+            print(f"✅ Analysis complete")
+            print(f"   Files: {len(analysis_data.get('files', []))}")
+            print(f"   Classes: {len(analysis_data.get('classes', []))}")
+            
+            # Sauvegarder analyse
+            self.project_loader.save_analysis(analysis_data)
+            
+            # Extraire tasks
+            new_tasks = self.project_loader.extract_tasks_from_analysis(analysis_data)
+            
+            print(f"🔍 Extracted {len(new_tasks)} tasks from analysis")
+            
+            # ✅ UTILISE self.backlog_tab_widget (pas backlog_tab)
+            existing_tasks = []
+            if hasattr(self, 'backlog_tab_widget'):
+                existing_tasks = self.backlog_tab_widget.get_selected_tasks()
+            
+            # Merger avec tasks existantes
+            all_tasks = self.project_loader.merge_tasks(existing_tasks, new_tasks)
+            
+            # Update backlog
+            if hasattr(self, 'backlog_tab_widget'):
+                self.backlog_tab_widget.set_tasks(all_tasks)
+            
+            # Sauvegarder tasks mergées
+            self.project_loader.save_tasks(all_tasks)
+            
+            # UI update
+            if hasattr(self, 'btnanalyze'):
+                self.btnanalyze.setEnabled(True)
+                self.btnanalyze.setText("Re-Analyze")
+            
+            if hasattr(self, 'btn_generate'):
+                self.btn_generate.setEnabled(True)
+            
+            new_count = len(new_tasks)
+            self.statusBar().showMessage(f"Analysis complete: {new_count} new tasks added", 3000)
+        
+        except Exception as e:
+            print(f"❌ Analysis error: {e}")
+            import traceback
+            traceback.print_exc()
+            
+            if hasattr(self, 'btnanalyze'):
+                self.btnanalyze.setEnabled(True)
+                self.btnanalyze.setText("Analyze")
+            
+            self.statusBar().showMessage(f"Analysis error: {e}", 5000)
+
+    
+    def analyze_project(self):
+        """Analyse projet et remplit task tree."""
+        if not self.project_path:
+            return
+        
+        self.statusBar().showMessage("Analyzing project...")
+        QApplication.processEvents()
+        
+        try:
+            analyzer = ProjectAnalyzer(str(self.project_path))
+            self.analysis = analyzer.analyze()
+            
+            # Load tasks
+            self.task_manager.load_from_analysis(self.analysis)
+            
+            # === LOAD BACKLOG TASKS FROM FILE ===
+            self._load_tasks()
+            
+            # Populate tree (NO auto-select)
+            self._populate_task_tree()
+            
+            self.btn_generate.setEnabled(True)
+            self.conversation.start_conversation(self.analysis['project_name'])
+            
+            self.statusBar().showMessage("✅ Analysis complete - Select tasks to include in prompt")
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Analysis failed: {e}")
+            self.statusBar().showMessage("Analysis failed")
+
+    def _populate_task_tree(self):
+        """Remplit TreeWidget avec structure File → Class → Method."""
+        self.task_tree.clear()
+        
+        # Store all tasks for selection tracking (IMPORTANT!)
+        self._all_tasks = list(self.task_manager.get_all_tasks())
+        
+        # Group tasks by file
+        files_dict = {}
+        for idx, task in enumerate(self._all_tasks):
+            file_path = task.file
+            if file_path not in files_dict:
+                files_dict[file_path] = []
+            # Store task with generated ID
+            files_dict[file_path].append((idx, task))
+        
+        # Build tree
+        for file_path, tasks_with_ids in sorted(files_dict.items()):
+            # File node
+            file_item = QTreeWidgetItem(self.task_tree, [file_path, 'File', ''])
+            file_item.setFlags(file_item.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsAutoTristate)
+            file_item.setCheckState(0, Qt.Unchecked)
+            
+            # Group by class
+            classes_dict = {}
+            for task_id, task in tasks_with_ids:
+                class_name = task.class_name
+                if class_name not in classes_dict:
+                    classes_dict[class_name] = []
+                classes_dict[class_name].append((task_id, task))
+            
+            for class_name, methods_with_ids in sorted(classes_dict.items()):
+                # Class node
+                class_item = QTreeWidgetItem(file_item, [class_name, 'Class', ''])
+                class_item.setFlags(class_item.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsAutoTristate)
+                class_item.setCheckState(0, Qt.Unchecked)
+                
+                # Method nodes
+                for task_id, method in sorted(methods_with_ids, key=lambda x: x[1].lineno):
+                    method_text = f"{method.method_name}()"
+                    method_item = QTreeWidgetItem(class_item, [method_text, 'Method', str(method.lineno)])
+                    method_item.setFlags(method_item.flags() | Qt.ItemIsUserCheckable)
+                    method_item.setCheckState(0, Qt.Unchecked)
+                    # Store task index as ID
+                    method_item.setData(0, Qt.UserRole, task_id)
+        
+        self.task_tree.expandAll()
+
+    def on_task_selected(self, item):
+        """Affiche détails de la task sélectionnée."""
+        task_id = item.data(Qt.UserRole)
+        
+        # Find task
+        self.selected_task = None
+        for task in self.tasks:
+            if task['id'] == task_id:
+                self.selected_task = task
+                break
+        
+        if not self.selected_task:
+            return
+        
+        # Display details
+        details = f"""# 📋 {self.selected_task['title']}
+
+    **ID:** {self.selected_task['id']}
+    **Type:** {self.selected_task['type']}
+    **Priority:** {self.selected_task['priority']}
+    **Status:** {self.selected_task['status']}
+    **Created:** {self.selected_task['created_at'].strftime('%Y-%m-%d %H:%M')}
+
+    ## Description
+
+    {self.selected_task['description']}
+
+    ## Associated Methods ({len(self.selected_task.get('methods', []))})
+
+    """
+        
+        for method in self.selected_task.get('methods', []):
+            details += f"- {method.get('class', '?')}.{method.get('method', '?')}()\n"
+        
+        self.task_detail_view.setMarkdown(details)
+
+
+    def edit_selected_task(self):
+        """Édite la task sélectionnée."""
+        if not self.selected_task:
+            QMessageBox.warning(self, "No Selection", "Select a task first!")
+            return
+        
+        QMessageBox.information(self, "Edit", "Edit dialog coming soon!")
+
+
+    def delete_selected_task(self):
+        """Supprime la task sélectionnée."""
+        if not self.selected_task:
+            QMessageBox.warning(self, "No Selection", "Select a task first!")
+            return
+        
+        reply = QMessageBox.question(
+            self, "Delete Task",
+            f"Delete task '{self.selected_task['title']}'?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        
+        if reply == QMessageBox.Yes:
+            self.tasks = [t for t in self.tasks if t['id'] != self.selected_task['id']]
+            self.selected_task = None
+            self._refresh_backlog_view()
+            self.statusBar().showMessage("🗑️ Task deleted!")
+
+
+    def generate_prompt_from_task(self):
+        """Génère prompt depuis une task du backlog."""
+        if not self.selected_task:
+            QMessageBox.warning(self, "No Selection", "Select a task first!")
+            return
+        
+        QMessageBox.information(self, "Generate", "Prompt generation from task coming soon!")
+
+
+    
+
+    
+    def on_task_selection_changed(self, item, column):
+        """Update inspector when method checked/clicked."""
+        # Count selected
+        if not hasattr(self, '_all_tasks'):
+            return
+        
+        # Get all checked items
+        iterator = QTreeWidgetItemIterator(self.task_tree, QTreeWidgetItemIterator.Checked)
+        count = 0
+        last_checked_item = None
+        
+        while iterator.value():
+            item = iterator.value()
+            if item.data(0, Qt.UserRole) is not None:
+                count += 1
+                last_checked_item = item
+            iterator += 1
+        
+        self.lbl_selection.setText(f"{count} method(s) selected")
+        
+        # Update selection state
+        for task in self._all_tasks:
+            task.selected = False
+        
+        iterator = QTreeWidgetItemIterator(self.task_tree, QTreeWidgetItemIterator.Checked)
+        while iterator.value():
+            item = iterator.value()
+            task_id = item.data(0, Qt.UserRole)
+            if task_id is not None and task_id < len(self._all_tasks):
+                self._all_tasks[task_id].selected = True
+            iterator += 1
+        
+        # === SHOW IN INSPECTOR if exactly 1 selected ===
+        if count == 1 and last_checked_item:
+            task_id = last_checked_item.data(0, Qt.UserRole)
+            if task_id is not None and task_id < len(self._all_tasks):
+                self._show_method_in_inspector(self._all_tasks[task_id])
+        elif count == 0:
+            self.inspector_widget.setVisible(False)
+        else:
+            # Multiple selected: show summary
+            self._show_multi_selection_summary(count)
+
+    def _show_method_in_inspector(self, method):
+        """Affiche méthode dans l'inspecteur."""
+        self.inspector_widget.setVisible(True)
+        self.current_inspected_method = method
+        
+        # Update labels
+        self.lbl_method_name.setText(f"📄 {method.method_name}()")
+        self.lbl_method_file.setText(f"📁 File: {method.file}")
+        self.lbl_method_class.setText(f"🏷️ Class: {method.class_name}")
+        self.lbl_method_line.setText(f"📍 Line: {method.lineno}")
+        
+        # Signature
+        self.lbl_signature.setText(method.signature or "No signature")
+        
+        # Code preview (first 15 lines)
+        if method.code:
+            lines = method.code.split('\n')[:15]
+            preview = '\n'.join(lines)
+            if len(method.code.split('\n')) > 15:
+                preview += "\n\n... (truncated)"
+            self.text_code_preview.setPlainText(preview)
+        else:
+            self.text_code_preview.setPlainText("No code available")
+        
+        # === AJOUTE ICI ===
+        # Docstring
+        if method.docstring:
+            self.text_docstring.setPlainText(method.docstring)
+        else:
+            self.text_docstring.setPlaceholderText("No docstring available")
+            self.text_docstring.clear()
+        # === FIN AJOUT ===
+        
+        # Stats
+        if method.code:
+            lines_count = len(method.code.split('\n'))
+            self.lbl_lines.setText(f"📏 Lines: {lines_count}")
+            
+            # Simple complexity estimate (count branches)
+            branches = method.code.count('if ') + method.code.count('for ') + method.code.count('while ')
+            if branches < 3:
+                complexity = "Low"
+            elif branches < 8:
+                complexity = "Medium"
+            else:
+                complexity = "High"
+            self.lbl_complexity.setText(f"📊 Complexity: {complexity} ({branches} branches)")
+        else:
+            self.lbl_lines.setText("📏 Lines: -")
+            self.lbl_complexity.setText("📊 Complexity: -")
+
+    def _show_multi_selection_summary(self, count):
+        """Show summary when multiple methods selected."""
+        self.inspector_widget.setVisible(True)
+        self.current_inspected_method = None
+        
+        self.lbl_method_name.setText(f"📦 {count} Methods Selected")
+        self.lbl_method_file.setText("Use 'Generate Prompt' to analyze them together")
+        self.lbl_method_class.setText("")
+        self.lbl_method_line.setText("")
+        self.lbl_signature.setText("")
+        self.text_code_preview.setPlainText(f"{count} methods selected.\n\nClick 'Generate Prompt' to create analysis prompt.")
+        self.lbl_complexity.setText("")
+        self.lbl_lines.setText("")
+
+    def create_task_from_selected_method(self):
+        """Crée task depuis méthode inspectée."""
+        if not hasattr(self, 'current_inspected_method') or not self.current_inspected_method:
+            QMessageBox.warning(self, "No Method", "Select a method first!")
+            return
+        
+        method = self.current_inspected_method
+        
+        # Quick create task
+        task = {
+            'id': self.next_task_id,
+            'title': f"Review {method.method_name}()",
+            'description': f"Analyze method in {method.class_name}",
+            'type': 'bug',
+            'priority': 'medium',
+            'status': 'todo',
+            'selected': False,  # Par défaut non sélectionnée
+            'methods': [{
+                'class': method.class_name,
+                'method': method.method_name,
+                'file': method.file,
+                'line': method.lineno
+            }],
+            'created_at': datetime.now()
+        }
+        
+        self.tasks.append(task)
+        self.next_task_id += 1
+        
+        # === SAVE + REFRESH BACKLOG UNIQUEMENT (PAS dashboard) ===
+        self._save_tasks()
+        
+        # Update BACKLOG tab only
+        if hasattr(self, 'backlog_tab_widget'):
+            self.backlog_tab_widget.set_tasks(self.tasks)
+            self.backlog_tab_widget._apply_filters()
+            self.backlog_tab_widget.refresh()
+
+        
+        # Switch to BACKLOG tab
+        self.tabs.setCurrentIndex(1)
+        
+        self.statusBar().showMessage(f"✅ Task created! Check BACKLOG tab to select it for prompt generation!")
+
+    def mark_no_issue(self):
+        """Marque méthode comme 'pas de problème' et passe à la suivante."""
+        if hasattr(self, 'current_inspected_method') and self.current_inspected_method:
+            # Uncheck current
+            iterator = QTreeWidgetItemIterator(self.task_tree, QTreeWidgetItemIterator.Checked)
+            while iterator.value():
+                item = iterator.value()
+                task_id = item.data(0, Qt.UserRole)
+                if task_id is not None and task_id < len(self._all_tasks):
+                    if self._all_tasks[task_id] == self.current_inspected_method:
+                        item.setCheckState(0, Qt.Unchecked)
+                        break
+                iterator += 1
+            
+            self.statusBar().showMessage(f"✅ {self.current_inspected_method.method_name}() marked as OK")
+
+    def generate_prompt(self):
+        """Génère prompt selon l'onglet actif (TASK_SELECTOR ou BACKLOG)."""
+        if not self.analysis:
+            QMessageBox.warning(self, "No Analysis", "Please analyze project first!")
+            return
+        
+        # === Récupérer template EN PREMIER ===
+        template = self.combo_template.currentText()
+        
+        # === MODE SPÉCIAL: refactor_file ===
+        if template == 'refactor_file':
+            # Pour refactor_file, on a besoin de TOUTES les méthodes d'UN fichier
+            # On détecte le fichier depuis les méthodes cochées
+            
+            if not hasattr(self, '_all_tasks'):
+                QMessageBox.warning(self, "No Tasks", "Please analyze project first!")
+                return
+            
+            # Trouver fichier depuis méthodes cochées
+            selected_tasks = [task for task in self._all_tasks if task.selected]
+            
+            if len(selected_tasks) == 0:
+                QMessageBox.warning(self, "No Selection", 
+                    "Pour le template 'refactor_file':\n\n"
+                    "1. Cochez UNE OU PLUSIEURS méthodes du même fichier\n"
+                    "2. Le système analysera TOUTES les méthodes de ce fichier\n\n"
+                    "Exemple: Cochez n'importe quelle méthode de main.py\n"
+                    "→ Génère le sommaire complet de main.py")
+                return
+            
+            # Extraire le fichier de la première méthode cochée
+            target_file = selected_tasks[0].file
+            self.target_file4card = target_file
+            print("############",target_file)
+            # Vérifier que toutes les méthodes cochées sont du même fichier
+            files = set(task.file for task in selected_tasks)
+            if len(files) > 1:
+                QMessageBox.warning(self, "Multiple Files", 
+                    f"⚠️ Vous avez coché des méthodes de {len(files)} fichiers différents:\n\n" +
+                    "\n".join(f"• {f}" for f in files) +
+                    "\n\nPour 'refactor_file', cochez seulement des méthodes d'UN SEUL fichier.")
+                return
+            
+            # Collecter TOUTES les méthodes de ce fichier (pas seulement les cochées)
+            file_methods = [task for task in self._all_tasks if task.file == target_file]
+            
+            if not file_methods:
+                QMessageBox.warning(self, "No Methods", f"No methods found in {target_file}")
+                return
+            
+            # Générer le file summary
+            file_summary_data = self._build_file_summary_data(target_file, file_methods)
+            
+            # Build context
+            context = {
+                'project_name': self.analysis['project_name'],
+                'file_summary': file_summary_data
+            }
+            
+            # Render template
+            try:
+                prompt = self.composer.render(
+                    f'prompts/{template}.jinja2',
+                    **context
+                )
+                
+                self.text_prompt.setPlainText(prompt)
+                self.statusBar().showMessage(
+                    f"✅ File summary generated: {len(file_methods)} methods from {target_file}"
+                )
+                return  # ✅ STOP ICI pour refactor_file
+                
+            except Exception as e:
+                import traceback
+                error_details = traceback.format_exc()
+                QMessageBox.critical(self, "Template Error", 
+                    f"Failed to generate file summary:\n\n{str(e)}\n\nDetails:\n{error_details}")
+                return
+        
+        # === MODE NORMAL: debug_bug, feature_new, refactor_code ===
+        # === Détecter onglet actif ===
+        current_tab_index = self.tabs.currentIndex()
+        
+        # Tab 0 = TASK_SELECTOR, Tab 1 = BACKLOG
+        if current_tab_index == 0:
+            # === MODE TASK_SELECTOR: Utilise tree checkboxes ===
+            if not hasattr(self, '_all_tasks'):
+                QMessageBox.warning(self, "No Tasks", "Please analyze project first!")
+                return
+            
+            selected_tasks = [task for task in self._all_tasks if task.selected]
+            target_file = selected_tasks[0].file
+            self.target_file4card = target_file
+            if len(selected_tasks) == 0:
+                QMessageBox.warning(self, "No Selection", 
+                    "Please check at least one method in the tree!")
+                return
+            
+            # Convert Task objects to dicts
+            selected_tasks_dicts = []
+            for task in selected_tasks:
+                selected_tasks_dicts.append({
+                    'file': task.file,
+                    'class_name': task.class_name,
+                    'method_name': task.method_name,
+                    'lineno': task.lineno,
+                    'signature': task.signature,
+                    'code': task.code,
+                    'docstring': task.docstring
+                })
+            
+            source_info = f"from TASK_SELECTOR tree ({len(selected_tasks)} methods)"
+            
+        else:
+            # === MODE BACKLOG: Utilise card checkboxes ===
+            if not hasattr(self, 'backlog_tab_widget'):
+                QMessageBox.warning(self, "No Backlog", "Backlog tab not initialized!")
+                return
+            
+            backlog_selected = self.backlog_tab_widget.get_selected_tasks()
+            
+            if len(backlog_selected) == 0:
+                QMessageBox.warning(self, "No Selection",
+                    "Please check at least one task card in BACKLOG!")
+                return
+            
+            # Convert BACKLOG tasks to unified format
+            selected_tasks_dicts = []
+            for task in backlog_selected:
+                methods = task.get('methods', [])
+                if methods:
+                    method = methods[0]
+                    selected_tasks_dicts.append({
+                        'file': method.get('file', 'unknown'),
+                        'class_name': method.get('class', 'UnknownClass'),
+                        'method_name': method.get('method', 'unknown_method'),
+                        'lineno': method.get('line', 0),
+                        'signature': f"{method.get('method', 'unknown')}()",
+                        'code': task.get('description', '# No code available'),
+                        'docstring': task.get('title', 'No description')
+                    })
+            
+            source_info = f"from BACKLOG ({len(backlog_selected)} tasks)"
+        
+        # === Validation commune ===
+        if len(selected_tasks_dicts) > 10:
+            reply = QMessageBox.question(
+                self, "Large Selection",
+                f"⚠️ You selected {len(selected_tasks_dicts)} tasks.\n"
+                f"This might be too large for AI context.\n\n"
+                f"Recommended: 3-5 tasks max.\n\nContinue anyway?",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            if reply == QMessageBox.No:
+                return
+        
+        # === Récupérer contexte template ===
+        code_mode = self.check_code_mode.isChecked()
+        description = self.input_description.text()
+        
+        # Build context
+        context = {
+            'project_name': self.analysis['project_name'],
+            'selected_tasks': selected_tasks_dicts,
+            'num_tasks': len(selected_tasks_dicts),
+            'code_mode': code_mode
+        }
+        
+        # Add template-specific variables
+        if template == 'debug_bug':
+            context['bug_description'] = description or "⚠️ Describe the bug"
+            context['traceback'] = ""
+        elif template == 'feature_new':
+            context['feature_description'] = description or "⚠️ Describe the feature"
+        elif template == 'refactor_code':
+            context['refactor_goal'] = description or "⚠️ Describe refactor goal"
+        
+        # Render prompt
+        try:
+            prompt = self.composer.render(
+                f'prompts/{template}.jinja2',
+                **context
+            )
+            
+            self.text_prompt.setPlainText(prompt)
+            self.statusBar().showMessage(
+                f"✅ Prompt generated {source_info} - "
+                f"Mode: {'CODE' if code_mode else 'ANALYSE'}"
+            )
+            
+        except Exception as e:
+            import traceback
+            error_details = traceback.format_exc()
+            QMessageBox.critical(self, "Template Error", 
+                f"Failed to generate prompt:\n\n{str(e)}\n\nDetails:\n{error_details}")
+
+    def copy_prompt(self):
+        """Copie prompt dans clipboard."""
+        prompt = self.text_prompt.toPlainText()
+        if prompt:
+            QApplication.clipboard().setText(prompt)
+            self.statusBar().showMessage("✅ Prompt copied to clipboard!")
+    
+    def parse_response(self):
+        """Parse réponse AI et crée des tasks visuelles.
+        
+        Supporte 2 formats:
+        - Format simple: {"tasks": [...]}
+        - Format refactoring: {"critical_issues_prioritized": [...], "immediate_quick_wins": [...], etc.}
+        """
+        response_text = self.text_response.toPlainText().strip()
+
+        # === FIX: Récupérer fichier analysé (s'il existe) ===
+        if self.target_file4card == "":
+            analyzed_file = getattr(self, 'current_analyzed_file', 'unknown.py')
+        elif self.target_file4card !="":
+            analyzed_file = self.target_file4card
+
+        if not response_text:
+            QMessageBox.warning(self, "No Response", "Paste AI JSON response first!")
+            return
+        
+        try:
+            # Parse JSON
+            response = json.loads(response_text)
+            
+            # === DÉTECTION FORMAT ===
+            
+            # Format 1: Simple task list (ancien format)
+            if 'tasks' in response:
+                ai_tasks = response.get('tasks', [])
+                
+                if not ai_tasks:
+                    QMessageBox.information(self, "No Tasks", "AI didn't suggest any tasks in response.")
+                    return
+                
+                # Dialog to show parsed tasks (ton code existant)
+                self._show_tasks_dialog(ai_tasks)
+            
+            # Format 2: Refactoring analysis (nouveau format)
+            elif any(key in response for key in ['critical_issues_prioritized', 'immediate_quick_wins', 'targeted_refactoring_plan']):
+                # Parse refactoring response
+                parsed_tasks = self._parse_refactoring_response(response,analyzed_file)
+                
+                if not parsed_tasks:
+                    QMessageBox.information(self, "No Tasks", "No refactoring tasks found in response.")
+                    return
+                
+                # Show refactoring tasks dialog
+                self._show_refactoring_tasks_dialog(parsed_tasks)
+            
+            else:
+                QMessageBox.warning(
+                    self, "Unknown Format",
+                    "JSON doesn't match expected format.\n\n"
+                    "Expected either:\n"
+                    "• {'tasks': [...]}\n"
+                    "• {'critical_issues_prioritized': [...], ...}"
+                )
+                return
+            
+            # Add cycle (existing logic)
+            prompt = self.text_prompt.toPlainText()
+            cycle_num = self.conversation.add_cycle(
+                prompt=prompt,
+                response=response,
+                needs_detected=response.get('next_needed', [])
+            )
+            
+            self.statusBar().showMessage(f"✅ Parsed tasks from AI response!")
+            
+        except json.JSONDecodeError as e:
+            QMessageBox.critical(self, "Invalid JSON", f"Failed to parse response:\n{e}")
+        except Exception as e:
+            import traceback
+            QMessageBox.critical(self, "Error", f"Failed to parse response:\n{e}\n\n{traceback.format_exc()}")
+
+
+    def _parse_refactoring_response(self, response, source_file='unknown.py'):
+        """Parse refactoring analysis JSON et crée tasks structurées.
+            Args:
+                response: JSON response dict
+                source_file: Nom du fichier analysé (ex: 'main_window.py')
+        Returns:
+            List[dict]: Tasks prêtes à être affichées
+        """
+        tasks = []
+        task_id = 0
+        
+        # === 1. CRITICAL ISSUES ===
+        if 'critical_issues_prioritized' in response:
+            for issue in response['critical_issues_prioritized']:
+                task_id += 1
+                
+                # Déterminer icône
+                priority_str = issue.get('priority', 'P1')
+                if 'P0' in priority_str:
+                    icon = '🔴'
+                    priority = 'critical'
+                elif 'P1' in priority_str:
+                    icon = '⚠️'
+                    priority = 'high'
+                else:
+                    icon = '🔶'
+                    priority = 'medium'
+                
+                # Build description
+                desc = f"{issue['description']}\n\n"
+                desc += f"**Impact:** {issue.get('impact', 'N/A')}\n\n"
+                desc += f"**Solution:** {issue.get('solution', 'N/A')}\n\n"
+                
+                if 'affected_methods' in issue:
+                    methods = issue['affected_methods']
+                    if isinstance(methods, list) and methods:
+                        desc += f"**Méthodes ({len(methods)}):** "
+                        desc += ", ".join(f"`{m}`" for m in methods[:5])
+                        if len(methods) > 5:
+                            desc += f" ... +{len(methods)-5}"
+                        desc += "\n\n"
+                
+                tasks.append({
+                    'id': f"REFACTOR_{task_id}",
+                    'title': f"{icon} {issue['issue']}",
+                    'description': desc.strip(),
+                    'priority': priority,
+                    'effort': issue.get('effort', 'Unknown'),
+                    'category': issue.get('category', 'refactoring'),
+                    'tags': ['refactoring', priority_str.lower()],
+                    'source_file': source_file 
+                })
+        
+        # === 2. QUICK WINS ===
+        if 'immediate_quick_wins' in response:
+            for action in response['immediate_quick_wins']:
+                task_id += 1
+                
+                desc = f"⚡ **Quick Win**\n\n"
+                desc += f"**Effort:** {action.get('effort', 'Unknown')}\n"
+                desc += f"**Impact:** {action.get('impact', 'N/A')}\n\n"
+                
+                if 'steps' in action:
+                    desc += "**Steps:**\n"
+                    for i, step in enumerate(action['steps'], 1):
+                        desc += f"{i}. {step}\n"
+                
+                tasks.append({
+                    'id': f"QUICKWIN_{task_id}",
+                    'title': f"⚡ {action['action']}",
+                    'description': desc.strip(),
+                    'priority': 'high',
+                    'effort': action.get('effort', 'Unknown'),
+                    'category': 'quick_win',
+                    'tags': ['quick-win', 'refactoring'],
+                    'source_file': source_file 
+                })
+        
+        # === 3. PHASED PLAN (EPICS) ===
+        if 'targeted_refactoring_plan' in response:
+            plan = response['targeted_refactoring_plan']
+            
+            for phase_key, phase_data in plan.items():
+                if phase_key == 'philosophy' or not isinstance(phase_data, dict):
+                    continue
+                
+                task_id += 1
+                
+                desc = f"**Goal:** {phase_data.get('goal', 'N/A')}\n"
+                desc += f"**Duration:** {phase_data.get('duration', 'Unknown')}\n\n"
+                
+                if 'tasks' in phase_data and isinstance(phase_data['tasks'], list):
+                    desc += f"**Subtasks ({len(phase_data['tasks'])}):**\n"
+                    for subtask in phase_data['tasks']:
+                        desc += f"• {subtask}\n"
+                
+                tasks.append({
+                    'id': f"EPIC_{phase_key}",
+                    'title': f"📦 {phase_data.get('goal', phase_key.title())}",
+                    'description': desc.strip(),
+                    'priority': 'high' if 'P0' in phase_data.get('priority', '') else 'medium',
+                    'effort': phase_data.get('duration', 'Unknown'),
+                    'category': 'epic',
+                    'tags': ['epic', 'refactoring', phase_key],
+                    'source_file': source_file 
+                })
+        
+        return tasks
+
+
+    def _show_refactoring_tasks_dialog(self, tasks):
+        """Affiche dialog avec tasks refactoring et permet sélection.
+        
+        Similaire à _show_tasks_dialog() mais adapté au format refactoring.
+        """
+        # Créer dialog
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Refactoring Tasks ({len(tasks)} found)")
+        dialog.setMinimumSize(800, 600)
+        
+        layout = QVBoxLayout(dialog)
+        
+        # Label info
+        info_label = QLabel(f"✨ {len(tasks)} refactoring tasks extracted from AI analysis")
+        info_label.setStyleSheet("font-weight: bold; font-size: 12pt; color: #4CAF50;")
+        layout.addWidget(info_label)
+        
+        # Stats
+        stats = {
+            'critical': sum(1 for t in tasks if t['priority'] == 'critical'),
+            'high': sum(1 for t in tasks if t['priority'] == 'high'),
+            'medium': sum(1 for t in tasks if t['priority'] == 'medium'),
+            'quick_wins': sum(1 for t in tasks if 'quick-win' in t.get('tags', [])),
+            'epics': sum(1 for t in tasks if t['category'] == 'epic')
+        }
+        
+        stats_text = f"🔴 Critical: {stats['critical']}  |  🟠 High: {stats['high']}  |  🟡 Medium: {stats['medium']}  |  ⚡ Quick Wins: {stats['quick_wins']}  |  📦 Epics: {stats['epics']}"
+        stats_label = QLabel(stats_text)
+        stats_label.setStyleSheet("color: #888; font-size: 10pt;")
+        layout.addWidget(stats_label)
+        
+        # Scroll area pour tasks
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll_widget = QWidget()
+        scroll_layout = QVBoxLayout(scroll_widget)
+        
+        # Checkboxes pour chaque task
+        task_checkboxes = []
+        
+        for task in tasks:
+            # Container pour task
+            task_container = QFrame()
+            task_container.setFrameStyle(QFrame.Box)
+            task_container.setStyleSheet(f"""
+                QFrame {{
+                    background: #2b2b2b;
+                    border: 1px solid #444;
+                    border-radius: 4px;
+                    padding: 8px;
+                    margin: 4px 0;
+                }}
+            """)
+            
+            task_layout = QVBoxLayout(task_container)
+            
+            # Checkbox avec titre
+            checkbox = QCheckBox(task['title'])
+            checkbox.setChecked(True)  # Toutes cochées par défaut
+            checkbox.setStyleSheet("font-weight: bold; font-size: 11pt;")
+            task_checkboxes.append((checkbox, task))
+            task_layout.addWidget(checkbox)
+            
+            # Metadata
+            meta_text = f"Priority: {task['priority'].upper()}  |  Effort: {task['effort']}  |  Category: {task['category']}"
+            meta_label = QLabel(meta_text)
+            meta_label.setStyleSheet("color: #888; font-size: 9pt; margin-left: 20px;")
+            task_layout.addWidget(meta_label)
+            
+            # Description (première ligne seulement)
+            desc_preview = task['description'].split('\n')[0][:150]
+            if len(task['description']) > 150:
+                desc_preview += "..."
+            desc_label = QLabel(desc_preview)
+            desc_label.setWordWrap(True)
+            desc_label.setStyleSheet("color: #aaa; font-size: 9pt; margin-left: 20px;")
+            task_layout.addWidget(desc_label)
+            
+            scroll_layout.addWidget(task_container)
+        
+        scroll.setWidget(scroll_widget)
+        layout.addWidget(scroll)
+        
+        # Boutons actions
+        button_layout = QHBoxLayout()
+        
+        btn_select_all = QPushButton("✓ Select All")
+        btn_select_all.clicked.connect(lambda: [cb.setChecked(True) for cb, _ in task_checkboxes])
+        button_layout.addWidget(btn_select_all)
+        
+        btn_select_none = QPushButton("✗ Select None")
+        btn_select_none.clicked.connect(lambda: [cb.setChecked(False) for cb, _ in task_checkboxes])
+        button_layout.addWidget(btn_select_none)
+        
+        button_layout.addStretch()
+        
+        btn_cancel = QPushButton("Cancel")
+        btn_cancel.clicked.connect(dialog.reject)
+        button_layout.addWidget(btn_cancel)
+        
+        btn_add = QPushButton("✨ Add Selected Tasks")
+        btn_add.setStyleSheet("background: #4CAF50; color: white; font-weight: bold;")
+        btn_add.clicked.connect(dialog.accept)
+        button_layout.addWidget(btn_add)
+        
+        layout.addLayout(button_layout)
+        
+        # Exec dialog
+        if dialog.exec_() == QDialog.Accepted:
+            # Get selected tasks
+            selected = [task for checkbox, task in task_checkboxes if checkbox.isChecked()]
+            
+            if selected:
+                self._add_selected_tasks(selected)
+                self.statusBar().showMessage(f"✅ Added {len(selected)} refactoring tasks!")
+
+    def _show_tasks_dialog(self, ai_tasks):
+        """Affiche dialog avec tasks parsées + sélection méthodes associées."""
+        from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QCheckBox, QPushButton
+        
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"📋 AI Suggested {len(ai_tasks)} Task(s)")
+        dialog.setMinimumSize(800, 600)
+        
+        layout = QVBoxLayout(dialog)
+        
+        layout.addWidget(QLabel("Select tasks to add to your backlog:"))
+        
+        # Scrollable area for tasks
+        scroll = QScrollArea()
+        scroll_widget = QWidget()
+        scroll_layout = QVBoxLayout(scroll_widget)
+        
+        task_checkboxes = []
+        
+        for task in ai_tasks:
+            # Task card
+            card = QWidget()
+            card.setStyleSheet("background: #f5f5f5; border-radius: 5px; padding: 10px;")
+            card_layout = QVBoxLayout(card)
+            
+            # Checkbox for task
+            task_title = task.get('title', 'Untitled Task')
+            task_type = task.get('type', 'unknown')
+            priority = task.get('priority', 'medium')
+            
+            checkbox = QCheckBox(f"[{priority.upper()}] {task_title}")
+            checkbox.setChecked(True)
+            checkbox.setStyleSheet("font-weight: bold; font-size: 12pt;")
+            card_layout.addWidget(checkbox)
+            
+            # Description
+            desc = task.get('description', 'No description')
+            desc_label = QLabel(f"📝 {desc}")
+            desc_label.setWordWrap(True)
+            card_layout.addWidget(desc_label)
+            
+            # Associated methods
+            methods = task.get('methods', [])
+            if methods:
+                methods_text = "🔧 Methods: " + ", ".join([f"{m['class']}.{m['method']}" for m in methods])
+                methods_label = QLabel(methods_text)
+                methods_label.setStyleSheet("color: #666; font-size: 9pt;")
+                card_layout.addWidget(methods_label)
+            
+            scroll_layout.addWidget(card)
+            task_checkboxes.append((checkbox, task))
+        
+        scroll.setWidget(scroll_widget)
+        scroll.setWidgetResizable(True)
+        layout.addWidget(scroll)
+        
+        # Buttons
+        button_layout = QHBoxLayout()
+        
+        btn_add = QPushButton("✅ Add Selected Tasks")
+        btn_add.clicked.connect(lambda: self._add_selected_tasks(dialog, task_checkboxes))
+        button_layout.addWidget(btn_add)
+        
+        btn_cancel = QPushButton("❌ Cancel")
+        btn_cancel.clicked.connect(dialog.reject)
+        button_layout.addWidget(btn_cancel)
+        
+        layout.addLayout(button_layout)
+        
+        dialog.exec()
+
+
+    def _add_selected_tasks(self, tasks):
+        """Ajoute tasks sélectionnées au backlog.
+        
+        Supporte:
+        - Ancien format: tasks depuis _show_tasks_dialog() (avec 'methods' key)
+        - Nouveau format: tasks refactoring (sans 'methods', avec metadata enrichie)
+        
+        Args:
+            tasks: List[dict] de tasks à ajouter
+        """
+        from datetime import datetime
+        
+        added_count = 0
+        
+        # === RÉCUPÉRER FICHIER ANALYSÉ (si dispo) ===
+        analyzed_file = getattr(self, 'current_analyzed_file', 'unknown.py')
+        
+        for task_data in tasks:
+            try:
+                # === DÉTECTION FORMAT ===
+                is_old_format = 'methods' in task_data
+                
+                if is_old_format:
+                    # === ANCIEN FORMAT (méthodes de code) ===
+                    task = {
+                        'id': task_data.get('id', f"task_{datetime.now().timestamp()}"),
+                        'title': task_data.get('title', 'Untitled Task'),
+                        'description': task_data.get('description', ''),
+                        'priority': task_data.get('priority', 'medium'),
+                        'status': task_data.get('status', 'todo'),
+                        'category': task_data.get('category', 'general'),
+                        'effort': task_data.get('effort', 'Unknown'),
+                        'tags': task_data.get('tags', []),
+                        'created_at': task_data.get('created_at', datetime.now().isoformat()),
+                        'methods': task_data.get('methods', []),
+                        'source': task_data.get('source', 'ai_task'),
+                        
+                        # === FIX: AJOUTER SOURCE_FILE ===
+                        'source_file': task_data.get('source_file', analyzed_file)  # ✅
+                    }
+                
+                else:
+                    # === NOUVEAU FORMAT (refactoring) ===
+                    task = {
+                        'id': task_data.get('id', f"task_{datetime.now().timestamp()}"),
+                        'title': task_data['title'],
+                        'description': task_data['description'],
+                        'priority': task_data.get('priority', 'medium'),
+                        'status': 'todo',
+                        'category': task_data.get('category', 'refactoring'),
+                        'effort': task_data.get('effort', 'Unknown'),
+                        'tags': task_data.get('tags', []),
+                        'created_at': datetime.now().isoformat(),
+                        'methods': [],
+                        'source': 'ai_refactoring',
+                        
+                        # === FIX: AJOUTER SOURCE_FILE ===
+                        'source_file': task_data.get('source_file', analyzed_file)  # ✅
+                    }
+                
+                # === AJOUT UNIVERSEL ===
+                if not hasattr(self, 'tasks'):
+                    self.tasks = []
+                
+                # Éviter doublons
+                if not any(t.get('id') == task['id'] for t in self.tasks):
+                    self.tasks.append(task)
+                    added_count += 1
+                    
+                    # Créer card visuelle
+                    #self._create_task_card_internal(task)
+            
+            except Exception as e:
+                print(f"Failed to add task {task_data.get('id', 'unknown')}: {e}")
+                import traceback
+                traceback.print_exc()
+        
+        # === SAUVEGARDE ET REFRESH ===
+        try:
+            if hasattr(self, '_save_tasks'):
+                self._save_tasks()
+        except Exception as e:
+            print(f"Warning: Could not save tasks: {e}")
+        
+        try:
+            if hasattr(self, '_refresh_backlog_view'):
+                self.backlog_tab_widget.set_tasks(self.tasks)
+                self.backlog_tab_widget._apply_filters()
+                self._refresh_backlog_view()
+                self.backlog_tab_widget.refresh()
+        except Exception as e:
+            print(f"Warning: Could not refresh backlog: {e}")
+        
+        return added_count
+
+    
+    def _refresh_backlog_view(self):
+        pass
+    def generate_file_summary_for_refactoring(self):
+        """Génère sommaire complet d'un fichier pour refactoring."""
+        # === DEBUG IMMÉDIAT ===
+        print("🔥🔥🔥 MÉTHODE APPELÉE !!! 🔥🔥🔥")
+        
+        if not self.analysis:
+            print("❌ Pas d'analyse")
+            QMessageBox.warning(self, "No Analysis", "Please analyze project first!")
+            return
+        # Detect current tab
+        current_tab_index = self.tabs.currentIndex()
+        
+        if current_tab_index != 0:
+            QMessageBox.information(self, "Wrong Tab", 
+                "File summary mode only works in TASK_SELECTOR tab.\n"
+                "Please switch to TASK_SELECTOR and select a FILE node.")
+            return
+        
+        # Get selected FILE from tree
+        selected_items = self.task_tree.selectedItems()
+        if not selected_items:
+            QMessageBox.warning(self, "No Selection", "Please select a FILE node in the tree!")
+            return
+        
+        selected_item = selected_items[0]
+        item_type = selected_item.data(0, Qt.UserRole + 1)
+        
+        if item_type != 'file':
+            QMessageBox.warning(self, "Wrong Selection", 
+                "Please select a FILE node (not class or method) to generate file summary!")
+            return
+        
+        # Get file path
+        file_path = selected_item.text(0)
+        
+        # Find all methods in this file
+        file_methods = []
+        for task in self._all_tasks:
+            if task.file == file_path:
+                file_methods.append(task)
+        
+        if not file_methods:
+            QMessageBox.warning(self, "No Methods", f"No methods found in {file_path}")
+            return
+        
+        # === Prepare data for template ===
+        file_summary_data = self._build_file_summary_data(file_path, file_methods)
+        
+        # === DEBUG: Print data structure ===
+        print("=" * 80)
+        print("DEBUG file_summary_data:")
+        print(json.dumps(file_summary_data, indent=2, default=str))
+        print("=" * 80)
+        
+        # === Render template ===
+        try:
+            # Build context dict
+            context = {
+                'project_name': self.analysis['project_name'],
+                'file_summary': file_summary_data
+            }
+            
+            print("DEBUG context keys:", context.keys())
+            print("DEBUG project_name:", context['project_name'])
+            print("DEBUG file_summary keys:", context['file_summary'].keys())
+            
+            # Call render_prompt with context dict
+            prompt = self.composer.render_prompt(
+                template_name='refactor_file',
+                context=context
+            )
+            
+            # Display in prompt area
+            self.text_prompt.setPlainText(prompt)
+            
+            self.statusBar().showMessage(
+                f"✅ File summary generated: {len(file_methods)} methods from {file_path}"
+            )
+            
+        except Exception as e:
+            import traceback
+            error_details = traceback.format_exc()
+            print("=" * 80)
+            print("ERROR TRACEBACK:")
+            print(error_details)
+            print("=" * 80)
+            QMessageBox.critical(self, "Template Error", 
+                f"Failed to generate file summary:\n\n{str(e)}\n\nDetails:\n{error_details}")
+
+
+    def _build_file_summary_data(self, file_path, methods):
+        """Build structured data for Jinja2 template with ENHANCED metrics.
+        
+        Returns dict with file analysis, method metrics, and code quality indicators.
+        """
+        from datetime import datetime
+        
+        # === CALCUL MÉTRIQUES PAR MÉTHODE ===
+        method_metrics = {}
+        all_code_lengths = []
+        
+        for method in methods:
+            if method.code:
+                lines = method.code.split('\n')
+                total_lines = len(lines)
+                
+                # Lignes non-vides
+                non_empty = [l for l in lines if l.strip()]
+                code_lines = len(non_empty)
+                
+                # Lignes commentaires
+                comment_lines = sum(1 for l in lines if l.strip().startswith('#'))
+                
+                # Code pur
+                pure_code = code_lines - comment_lines
+            else:
+                total_lines = 0
+                code_lines = 0
+                comment_lines = 0
+                pure_code = 0
+            
+            # Niveau complexité
+            if pure_code > 50:
+                complexity = 'critical'
+            elif pure_code > 30:
+                complexity = 'high'
+            elif pure_code > 15:
+                complexity = 'medium'
+            else:
+                complexity = 'low'
+            
+            method_metrics[method.method_name] = {
+                'total_lines': total_lines,
+                'code_lines': pure_code,
+                'comment_lines': comment_lines,
+                'complexity': complexity,
+                'start_line': method.lineno,
+                'end_line': method.lineno + total_lines - 1 if total_lines > 0 else method.lineno
+            }
+            
+            all_code_lengths.append(pure_code)
+        
+        # === STATS GLOBALES ===
+        total_lines = sum(m['total_lines'] for m in method_metrics.values())
+        total_code = sum(m['code_lines'] for m in method_metrics.values())
+        avg_length = total_code / len(methods) if methods else 0
+        
+        # Médiane
+        sorted_lengths = sorted(all_code_lengths)
+        n = len(sorted_lengths)
+        median = sorted_lengths[n//2] if n > 0 else 0
+        
+        # Méthodes sans doc
+        undocumented = [m.method_name for m in methods if not m.docstring or not m.docstring.strip()]
+        
+        # Méthodes longues
+        long_methods = [
+            {
+                'name': m.method_name,
+                'lines': method_metrics[m.method_name]['code_lines'],
+                'start': method_metrics[m.method_name]['start_line'],
+                'end': method_metrics[m.method_name]['end_line']
+            }
+            for m in methods
+            if method_metrics[m.method_name]['code_lines'] > 50
+        ]
+        
+        # Distribution complexité
+        complexity_dist = {
+            'low': sum(1 for m in method_metrics.values() if m['complexity'] == 'low'),
+            'medium': sum(1 for m in method_metrics.values() if m['complexity'] == 'medium'),
+            'high': sum(1 for m in method_metrics.values() if m['complexity'] == 'high'),
+            'critical': sum(1 for m in method_metrics.values() if m['complexity'] == 'critical')
+        }
+        
+        # === GROUP BY CLASS ===
+        classes_dict = {}
+        for method in methods:
+            class_name = method.class_name or "__MODULE__"
+            if class_name not in classes_dict:
+                classes_dict[class_name] = []
+            classes_dict[class_name].append(method)
+        
+        # === BUILD STRUCTURED DATA ===
+        classes_data = []
+        
+        for class_name, class_methods in sorted(classes_dict.items()):
+            methods_data = []
+            class_total_lines = 0
+            class_code_lines = 0
+            
+            for method in class_methods:
+                # Extract params
+                params = self._extract_params_from_signature(method.signature)
+                
+                # Detect signals
+                signals = self._detect_signals_in_code(method.code)
+                
+                # Clean docstring
+                docstring = method.docstring.strip() if method.docstring else "No docstring"
+                if '\n' in docstring:
+                    docstring = docstring.split('\n')[0].strip()
+                if len(docstring) > 120:
+                    docstring = docstring[:117] + "..."
+                
+                # Get metrics
+                metrics = method_metrics[method.method_name]
+                class_total_lines += metrics['total_lines']
+                class_code_lines += metrics['code_lines']
+                
+                methods_data.append({
+                    'signature': method.signature,
+                    'name': method.method_name,
+                    'docstring': docstring,
+                    'params': params,
+                    'params_str': ', '.join(params) if params else 'None',
+                    'signals': signals,
+                    'signals_str': ', '.join(signals) if signals else 'None',
+                    
+                    # === ENHANCED METRICS ===
+                    'start_line': metrics['start_line'],
+                    'end_line': metrics['end_line'],
+                    'total_lines': metrics['total_lines'],
+                    'code_lines': metrics['code_lines'],
+                    'comment_lines': metrics['comment_lines'],
+                    'complexity': metrics['complexity'],
+                    'has_docstring': bool(method.docstring and method.docstring.strip()),
+                    'is_long': metrics['code_lines'] > 50,
+                    'is_complex': metrics['complexity'] in ['high', 'critical']
+                })
+            
+            classes_data.append({
+                'name': class_name,
+                'is_module': (class_name == "__MODULE__"),
+                'methods': methods_data,
+                'method_count': len(methods_data),
+                'total_lines': class_total_lines,
+                'code_lines': class_code_lines
+            })
+        
+        return {
+            'file_path': file_path,
+            'total_methods': len(methods),
+            'total_classes': len(classes_data),
+            'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'classes': classes_data,
+            
+            # === ENHANCED METRICS ===
+            'metrics': {
+                'total_lines': total_lines,
+                'total_code_lines': total_code,
+                'average_method_length': round(avg_length, 1),
+                'median_method_length': median,
+                
+                'undocumented_methods': undocumented,
+                'undocumented_count': len(undocumented),
+                'undocumented_percentage': round(len(undocumented) / len(methods) * 100, 1) if methods else 0,
+                
+                'long_methods': long_methods,
+                'long_methods_count': len(long_methods),
+                
+                'complexity_distribution': complexity_dist
+            }
+        }
+
+    def _extract_params_from_signature(self, signature):
+        """Extract parameter names from method signature."""
+        import re
+        
+        match = re.search(r'\((.*?)\)', signature)
+        if not match:
+            return []
+        
+        params_str = match.group(1).strip()
+        if not params_str:
+            return []
+        
+        params = []
+        current_param = ""
+        bracket_depth = 0
+        paren_depth = 0
+        
+        for char in params_str + ',':
+            if char in '[{':
+                bracket_depth += 1
+                current_param += char
+            elif char in ']}':
+                bracket_depth -= 1
+                current_param += char
+            elif char == '(':
+                paren_depth += 1
+                current_param += char
+            elif char == ')':
+                paren_depth -= 1
+                current_param += char
+            elif char == ',' and bracket_depth == 0 and paren_depth == 0:
+                param = current_param.strip()
+                if param:
+                    cleaned = self._clean_param(param)
+                    if cleaned:
+                        params.append(cleaned)
+                current_param = ""
+            else:
+                current_param += char
+        
+        return params
+
+
+    def _clean_param(self, param):
+        """Clean single parameter name."""
+        param = param.strip()
+        if not param:
+            return None
+        
+        # Keep *args and **kwargs as-is
+        if param.startswith('**') or param.startswith('*'):
+            if '=' in param:
+                param = param.split('=')[0].strip()
+            if ':' in param:
+                param = param.split(':')[0].strip()
+            return param
+        
+        # Remove default value
+        if '=' in param:
+            param = param.split('=')[0].strip()
+        
+        # Remove type hint
+        if ':' in param:
+            param = param.split(':')[0].strip()
+        
+        return param if param else None
+
+
+    def _detect_signals_in_code(self, code):
+        """Detect Qt signals emitted in method code."""
+        import re
+        
+        if not code:
+            return []
+        
+        pattern = r'self\.(\w+)\.emit\s*\('
+        matches = re.findall(pattern, code)
+        
+        return sorted(set(matches))
+
+    def parse_ai_refactoring_response(self, json_data):
+        """Parse réponse AI refactoring et crée tasks structurées.
+        
+        Args:
+            json_data: Dict ou str JSON de l'analyse AI
+        
+        Returns:
+            List[dict]: Tasks prêtes à insérer dans backlog
+        """
+        import json
+        from datetime import datetime
+        
+        # Parse JSON si string
+        if isinstance(json_data, str):
+            try:
+                data = json.loads(json_data)
+            except json.JSONDecodeError as e:
+                QMessageBox.warning(self, "Parse Error", f"Invalid JSON:\n{e}")
+                return []
+        else:
+            data = json_data
+        
+        tasks = []
+        task_counter = 0
+        
+        # === 1. CRITICAL ISSUES (P0/P1) ===
+        if 'critical_issues_prioritized' in data:
+            for issue in data['critical_issues_prioritized']:
+                task_counter += 1
+                
+                # Déterminer icône selon priorité
+                if 'P0' in issue.get('priority', ''):
+                    icon = '🔴'
+                    priority = 'critical'
+                elif 'P1' in issue.get('priority', ''):
+                    icon = '⚠️'
+                    priority = 'high'
+                else:
+                    icon = '🔶'
+                    priority = 'medium'
+                
+                # Build description enrichie
+                description = f"{issue['description']}\n\n"
+                description += f"**Impact:** {issue.get('impact', 'N/A')}\n\n"
+                description += f"**Solution:** {issue.get('solution', 'N/A')}\n\n"
+                
+                if 'affected_methods' in issue and isinstance(issue['affected_methods'], list):
+                    description += f"**Méthodes concernées ({len(issue['affected_methods'])}):**\n"
+                    for method in issue['affected_methods'][:10]:
+                        description += f"- `{method}`\n"
+                    if len(issue['affected_methods']) > 10:
+                        description += f"- ... et {len(issue['affected_methods']) - 10} autres\n"
+                    description += "\n"
+                
+                if 'benefits' in issue:
+                    description += "**Bénéfices:**\n"
+                    for benefit in issue['benefits']:
+                        description += f"- {benefit}\n"
+                
+                task = {
+                    'id': f"REFACTOR_{task_counter}",
+                    'title': f"{icon} {issue['issue']}",
+                    'description': description.strip(),
+                    'priority': priority,
+                    'status': 'todo',
+                    'category': issue.get('category', 'refactoring'),
+                    'effort': issue.get('effort', 'Unknown'),
+                    'tags': [
+                        'refactoring',
+                        issue.get('category', 'general'),
+                        issue.get('priority', 'P1').replace(' ', '_').lower()
+                    ],
+                    'metadata': {
+                        'priority_raw': issue.get('priority'),
+                        'lines': issue.get('lines', 0),
+                        'affected_methods': issue.get('affected_methods', [])
+                    }
+                }
+                tasks.append(task)
+        
+        # === 2. IMMEDIATE QUICK WINS ===
+        if 'immediate_quick_wins' in data:
+            for action in data['immediate_quick_wins']:
+                task_counter += 1
+                
+                # Quick wins sont toujours haute priorité
+                priority_map = {
+                    'P0': 'critical',
+                    'P1': 'high',
+                    'P2': 'medium'
+                }
+                priority = priority_map.get(action.get('priority', 'P2'), 'medium')
+                
+                description = f"⚡ **Quick Win** - Temps estimé: {action.get('effort', 'Unknown')}\n\n"
+                description += f"**Impact:** {action.get('impact', 'N/A')}\n\n"
+                
+                if 'steps' in action:
+                    description += "**Steps:**\n"
+                    for i, step in enumerate(action['steps'], 1):
+                        description += f"{i}. {step}\n"
+                
+                task = {
+                    'id': f"QUICKWIN_{task_counter}",
+                    'title': f"⚡ {action['action']}",
+                    'description': description.strip(),
+                    'priority': priority,
+                    'status': 'todo',
+                    'category': 'quick_win',
+                    'effort': action.get('effort', 'Unknown'),
+                    'tags': ['quick-win', 'refactoring', action.get('priority', 'p2').lower()]
+                }
+                tasks.append(task)
+        
+        # === 3. PHASED REFACTORING PLAN (EPICS) ===
+        if 'targeted_refactoring_plan' in data:
+            plan = data['targeted_refactoring_plan']
+            
+            for phase_key, phase_data in plan.items():
+                if phase_key == 'philosophy':  # Skip philosophy string
+                    continue
+                
+                if not isinstance(phase_data, dict):
+                    continue
+                
+                task_counter += 1
+                
+                # Epic parent task
+                description = f"📦 **Phase:** {phase_data.get('goal', 'N/A')}\n"
+                description += f"**Durée:** {phase_data.get('duration', 'Unknown')}\n"
+                description += f"**Priorité:** {phase_data.get('priority', 'N/A')}\n\n"
+                
+                if 'tasks' in phase_data and isinstance(phase_data['tasks'], list):
+                    description += f"**Sous-tâches ({len(phase_data['tasks'])}):**\n"
+                    for subtask in phase_data['tasks']:
+                        description += f"- {subtask}\n"
+                
+                if 'result' in phase_data:
+                    description += f"\n**Résultat attendu:**\n"
+                    result = phase_data['result']
+                    for key, value in result.items():
+                        description += f"- {key}: {value}\n"
+                
+                epic_task = {
+                    'id': f"EPIC_{phase_key}",
+                    'title': f"📦 {phase_data.get('goal', phase_key.replace('_', ' ').title())}",
+                    'description': description.strip(),
+                    'priority': 'high' if 'P0' in phase_data.get('priority', '') else 'medium',
+                    'status': 'todo',
+                    'category': 'epic',
+                    'effort': phase_data.get('duration', 'Unknown'),
+                    'tags': ['epic', 'refactoring', phase_key]
+                }
+                tasks.append(epic_task)
+                
+                # Create individual subtasks
+                if 'tasks' in phase_data and isinstance(phase_data['tasks'], list):
+                    for i, subtask_title in enumerate(phase_data['tasks'], 1):
+                        task_counter += 1
+                        
+                        subtask = {
+                            'id': f"SUBTASK_{phase_key}_{i}",
+                            'title': f"   └─ {subtask_title}",
+                            'description': f"**Partie de:** {phase_data.get('goal', 'N/A')}\n\n"
+                                        f"**Phase:** {phase_key}\n"
+                                        f"**Ordre:** {i}/{len(phase_data['tasks'])}",
+                            'priority': 'medium',
+                            'status': 'todo',
+                            'category': 'subtask',
+                            'effort': '0.5-1 jour',
+                            'tags': ['subtask', 'refactoring', phase_key],
+                            'parent_id': epic_task['id']
+                        }
+                        tasks.append(subtask)
+        
+        # === 4. METHOD-BY-METHOD REFACTORING ===
+        if 'method_by_method_refactoring' in data:
+            for method_key, method_data in data['method_by_method_refactoring'].items():
+                if 'refactoring' not in method_data:
+                    continue
+                
+                task_counter += 1
+                
+                refactoring = method_data['refactoring']
+                
+                description = f"**Méthode:** `{method_key}`\n"
+                description += f"**Complexité actuelle:** {method_data.get('current_complexity', 'N/A')}\n\n"
+                
+                if 'split_into' in refactoring:
+                    description += f"**Découper en {len(refactoring['split_into'])} sous-méthodes:**\n\n"
+                    for sub in refactoring['split_into']:
+                        if isinstance(sub, dict):
+                            description += f"### `{sub.get('method', 'unknown')}`\n"
+                            description += f"**Lignes:** {sub.get('lines_est', 'N/A')}\n"
+                            if 'responsibility' in sub:
+                                description += f"**Responsabilité:** {sub['responsibility']}\n"
+                            description += "\n"
+                        else:
+                            description += f"- {sub}\n"
+                
+                if 'new_orchestrator' in refactoring:
+                    orch = refactoring['new_orchestrator']
+                    description += f"\n**Nouveau orchestrateur:**\n"
+                    description += f"- Méthode: `{orch.get('method', 'N/A')}`\n"
+                    description += f"- Lignes: {orch.get('lines_est', 'N/A')}\n"
+                
+                task = {
+                    'id': f"METHOD_{task_counter}",
+                    'title': f"🔧 Refactor {method_key.split('_')[0:3]}",  # Truncate long names
+                    'description': description.strip(),
+                    'priority': 'high' if method_data.get('current_complexity') == 'CRITICAL' else 'medium',
+                    'status': 'todo',
+                    'category': 'method_refactoring',
+                    'effort': '0.5-1 jour',
+                    'tags': ['refactoring', 'method-splitting', 'complexity']
+                }
+                tasks.append(task)
+        
+        # === 5. DOCUMENTATION TASKS ===
+        if 'critical_metrics_analysis' in data:
+            metrics = data['critical_metrics_analysis']
+            
+            if 'documentation' in metrics:
+                doc = metrics['documentation']
+                
+                if doc.get('missing_docstrings', 0) > 0:
+                    task_counter += 1
+                    
+                    description = f"Ajouter docstrings à {doc['missing_docstrings']} méthodes ({doc.get('percentage', 'N/A')}%)\n\n"
+                    description += "**Méthodes sans documentation:**\n"
+                    
+                    for method in doc.get('missing_methods', [])[:15]:
+                        description += f"- `{method}`\n"
+                    
+                    if len(doc.get('missing_methods', [])) > 15:
+                        description += f"- ... et {len(doc['missing_methods']) - 15} autres\n"
+                    
+                    description += "\n**Format:** Google/NumPy style docstrings\n"
+                    description += "**Inclure:** Description, Args, Returns, Raises si applicable"
+                    
+                    task = {
+                        'id': f"DOC_{task_counter}",
+                        'title': f"📝 Compléter documentation ({doc['missing_docstrings']} méthodes)",
+                        'description': description,
+                        'priority': 'low' if doc.get('percentage', 100) < 30 else 'medium',
+                        'status': 'todo',
+                        'category': 'documentation',
+                        'effort': f"{doc['missing_docstrings'] * 5}min",
+                        'tags': ['documentation', 'docstrings', 'maintenance']
+                    }
+                    tasks.append(task)
+        
+        return tasks
+
+def main():
+    app = QApplication(sys.argv)
+    app.setStyle('Fusion')
+    
+    window = SimplePingPongGUI()
+    window.show()
+    
+    sys.exit(app.exec())
+
+
+if __name__ == '__main__':
+    main()

@@ -1,0 +1,328 @@
+⚠️⚠️⚠️ EXIGENCE CRITIQUE DE FORMAT ⚠️⚠️⚠️
+
+TU ES UN EXPERT SENIOR EN REFACTORING PYTHON.
+
+Ta réponse DOIT être UNIQUEMENT le JSON ci-dessous, **ENTIÈREMENT EN FRANÇAIS**.
+AUCUNE explication, AUCUN bloc markdown, AUCUN texte avant/après.
+Commence par `{` sur la première ligne, termine par `}` sur la dernière.
+
+═══════════════════════════════════════════════════════════════════════════════
+📊 DONNÉES D'ANALYSE DU PROJET
+═══════════════════════════════════════════════════════════════════════════════
+
+**Projet:** {{ project_name }}
+**Fichier:** `{{ file_summary['file_path'] }}`
+**Date d'analyse:** {{ file_summary['generated_at'] }}
+
+## APERÇU DES MÉTRIQUES
+
+- **Méthodes totales:** {{ file_summary['total_methods'] }}
+- **Classes totales:** {{ file_summary['total_classes'] }}
+- **Lignes de code:** {{ file_summary['metrics']['total_code_lines'] }} ({{ file_summary['metrics']['total_lines'] }} avec commentaires)
+- **Longueur moyenne méthodes:** {{ file_summary['metrics']['average_method_length'] }} lignes
+- **Longueur médiane méthodes:** {{ file_summary['metrics']['median_method_length'] }} lignes
+- **Sans documentation:** {{ file_summary['metrics']['undocumented_count'] }} méthodes ({{ file_summary['metrics']['undocumented_percentage'] }}%)
+- **Méthodes longues (>50L):** {{ file_summary['metrics']['long_methods_count'] }}
+
+## DISTRIBUTION DE COMPLEXITÉ
+
+- 🟢 **Faible:** {{ file_summary['metrics']['complexity_distribution']['low'] }} méthodes
+- 🟡 **Moyenne:** {{ file_summary['metrics']['complexity_distribution']['medium'] }} méthodes
+- 🟠 **Élevée:** {{ file_summary['metrics']['complexity_distribution']['high'] }} méthodes
+- 🔴 **Critique:** {{ file_summary['metrics']['complexity_distribution']['critical'] }} méthodes
+
+{% if file_summary['metrics']['long_methods_count'] > 0 %}
+## 🔴 MÉTHODES LES PLUS LONGUES
+
+{% for method in file_summary['metrics']['long_methods'] %}
+- **`{{ method['name'] }}`**: {{ method['lines'] }} lignes (lignes {{ method['start'] }}-{{ method['end'] }})
+{% endfor %}
+{% endif %}
+
+## STRUCTURE DÉTAILLÉE
+
+{% for class in file_summary['classes'] %}
+### 📋 {{ class['name'] }} ({{ class['method_count'] }} méthodes | {{ class['code_lines'] }} lignes de code)
+
+{% for method in class['methods'] %}
+**`{{ method['signature'] }}`**
+- Lignes: {{ method['start_line'] }}-{{ method['end_line'] }} ({{ method['code_lines'] }} lignes de code)
+- Complexité: {{ method['complexity'] }}
+{% if method['params'] %}- Paramètres: {{ method['params_str'] }}{% endif %}
+{% if not method['has_docstring'] %}- ⚠️ SANS DOCSTRING{% endif %}
+{% if method['is_long'] %}- 🔴 TROP LONGUE (>50 lignes){% endif %}
+- Doc: {{ method['docstring'] }}
+{% endfor %}
+
+{% endfor %}
+
+═══════════════════════════════════════════════════════════════════════════════
+🚨 FORMAT JSON OBLIGATOIRE - RÉPONSE EN FRANÇAIS
+═══════════════════════════════════════════════════════════════════════════════
+
+TU DOIS répondre avec EXACTEMENT cette structure JSON.
+AUCUN bloc markdown (```
+TOUT LE CONTENU TEXTUEL DOIT ÊTRE EN FRANÇAIS.
+
+{
+  "executive_summary": {
+    "severity": "HIGH|MEDIUM|LOW",
+    "total_lines": <nombre>,
+    "code_lines": <nombre>,
+    "technical_debt_score": "X.X/10",
+    "maintainability_index": "XX/100 (Élevé|Moyen|Faible)",
+    "cyclomatic_complexity_avg": "Faible|Moyenne|Élevée|Critique",
+    "primary_issue": "Problème principal en 1 phrase max 12 mots",
+    "refactoring_urgency": "Élevée|Moyenne|Faible - Justification 1 phrase",
+    "context": "Contexte taille/complexité projet 1 phrase dense",
+    "comparison": "Comparaison best practices 1 phrase"
+  },
+  
+  "critical_metrics_analysis": {
+    "size_indicators": {
+      "methods_count": <nombre>,
+      "threshold_context": "Seuil contextuel en français",
+      "verdict": "X% au-dessus/en-dessous seuil",
+      "code_lines": <nombre>,
+      "threshold_lines": "XXX-XXX lignes max",
+      "verdict": "X% au-dessus/en-dessous"
+    },
+    
+    "complexity_distribution": {
+      "critical": {"count": <nombre>, "percentage": "XX%", "verdict": "EXCELLENT|BON|PROBLÉMATIQUE"},
+      "high": {"count": <nombre>, "percentage": "XX%", "verdict": "EXCELLENT|BON|PROBLÉMATIQUE"},
+      "medium": {"count": <nombre>, "percentage": "XX%", "verdict": "BON"},
+      "low": {"count": <nombre>, "percentage": "XX%", "verdict": "EXCELLENT"},
+      "analysis": "1 phrase MAXIMUM si distribution bonne"
+    },
+    
+    "long_methods": {
+      "count": <nombre>,
+      "percentage": "XX%",
+      "longest": [
+        {"method": "nom_methode", "lines": <nombre>, "role": "Ce qu'elle fait 1 phrase"}
+      ],
+      "verdict": "1 phrase verdict si 0-2 méthodes >50L acceptables"
+    },
+    
+    "documentation": {
+      "missing_docstrings": <nombre>,
+      "percentage": "XX%",
+      "missing_methods": ["method1", "method2"],
+      "verdict": "Excellent|Bon|Moyen|Faible - Niveau priorité"
+    }
+  },
+  
+  "responsibility_analysis": {
+    "current_responsibilities": {
+      "nom_responsabilite": {
+        "methods": ["method1", "method2"],
+        "lines_est": <nombre>,
+        "verdict": "ACCEPTABLE|PROBLÉMATIQUE"
+      }
+    },
+    "verdict": "1 phrase résumé responsabilités extraction"
+  },
+  
+  "critical_issues_prioritized": [
+    {
+      "priority": "P0 - Critique|P1 - Élevée|P2 - Moyenne|P3 - Cosmétique",
+      "category": "architecture|complexité|duplication|documentation|cosmetic",
+      "issue": "Titre problème max 50 caractères",
+      "affected_methods": ["method1", "method2"],
+      "lines": <nombre>,
+      "description": "1 phrase P3, 2-3 phrases P0/P1",
+      "impact": "1 phrase impact",
+      "solution": "1 phrase solution concrète",
+      "effort": "X heures|jours",
+      "benefits": ["Bénéfice 1", "Bénéfice 2"]
+    }
+  ],
+  
+  "targeted_refactoring_plan": {
+    "philosophy": "Stratégie globale 1-2 phrases",
+    
+    "phase_1_nom": {
+      "duration": "X jours",
+      "priority": "P0|P1|P2",
+      "goal": "Objectif phase 1 phrase",
+      "tasks": ["Tâche 1", "Tâche 2", "Tâche 3"],
+      "result": {
+        "file_reduction": "-XXX lignes",
+        "new_file": "chemin/fichier.py (~XXX lignes)",
+        "testability": "Amélioration testabilité 1 phrase"
+      }
+    }
+  },
+  
+  "method_by_method_refactoring": {
+    "nom_methode_XXX_lines": {
+      "current_complexity": "CRITIQUE|ÉLEVÉE|ACCEPTABLE",
+      "refactoring": {
+        "recommended_approach": "Conservation OU extraction - justification 1 phrase sans code"
+      }
+    }
+  },
+  
+  "comparison_with_best_practices": {
+    "context_guidelines": {
+      "typical_size": "Lignes attendues type fichier",
+      "current": "<nombre> lignes",
+      "verdict": "XX% au-dessus/en-dessous",
+      "acceptable_responsibilities": ["resp1", "resp2"],
+      "unacceptable_in_this_context": ["resp3", "resp4"]
+    },
+    
+    "project_specific_assessment": {
+      "good": ["Aspects qualitatifs architecture patterns SANS répéter métriques chiffrées"],
+      "bad": ["Violations best practices"]
+    }
+  },
+  
+  "immediate_quick_wins": [
+    {
+      "action": "Quoi faire max 50 caractères",
+      "effort": "X heures",
+      "impact": "HIGH|MEDIUM|LOW - Bénéfice",
+      "priority": "P0|P1|P2|P3",
+      "steps": ["Étape 1", "Étape 2", "Étape 3"]
+    }
+  ],
+  
+  "risk_assessment": {
+    "refactoring_risks": {
+      "nom_risque": {
+        "level": "ÉLEVÉ|MOYEN|FAIBLE",
+        "description": "Risque 1 phrase",
+        "mitigation": "Prévention 1 phrase",
+        "rollback_plan": "Annulation 1 phrase"
+      }
+    }
+  },
+  
+  "success_metrics": {
+    "before_refactoring": {"methods": <nombre>, "lines": <nombre>, "complexity_critical": <nombre>},
+    "after_all_phases": {"methods": <nombre>, "lines": <nombre>, "complexity_critical": <nombre>, "maintainability_index": "XX → XX (+XX%)"}
+  },
+  
+  "total_effort_estimate": {
+    "phase_1": "X jours",
+    "total": "X jours",
+    "with_buffer_15_percent": "X jours",
+    "note": "Justification estimation 1 phrase"
+  },
+  
+  "recommendation": {
+    "priority": "ÉLEVÉE|MOYENNE|FAIBLE - Quand commencer",
+    "approach": "Stratégie refactoring 1 phrase",
+    "rationale": "Pourquoi cette approche 1 phrase",
+    "quick_start": ["Jour 1: Actions", "Jour 2: Actions"],
+    "long_term": "Timeline complète 1 phrase"
+  }
+}
+
+═══════════════════════════════════════════════════════════════════════════════
+📋 CHECKLIST VALIDATION JSON
+═══════════════════════════════════════════════════════════════════════════════
+
+✅ Commence par `{` termine par `}`
+✅ Guillemets doubles "..." pas simples '...'
+✅ Pas virgules traînantes
+✅ Caractères spéciaux échappés (\n, \", \$$
+✅ Nombres sans guillemets sauf formats "X.X/10"
+✅ TOUT EN FRANÇAIS
+✅ executive_summary 4 phrases MAX
+✅ critical_issues_prioritized 3-7 items
+✅ Arrays 1 ligne si <5 items courts
+
+═══════════════════════════════════════════════════════════════════════════════
+🎯 DOMAINES ANALYSE PRIORITAIRES
+═══════════════════════════════════════════════════════════════════════════════
+
+**Cherche prioritairement:**
+- **God Classes**: Trop responsabilités
+- **Méthodes >100L**: Toujours refactoriser
+- **Méthodes 50-100L**: Évaluer contexte (orchestrateur UI acceptable, logique métier extraire)
+- **Code dupliqué**: Logique similaire
+- **Séparation**: UI/métier mélangé
+- **Tests**: Code non testable
+- **Couplage**: Dépendances excessives
+
+**Contexte projet:**
+- MainWindow/GUI peuvent être plus gros que classes service
+- Suggère améliorations réalistes pas réécritures complètes
+
+**Éviter sur-optimisation:**
+- Méthode 50-80L bien structurée orchestrateur UI = ACCEPTABLE
+- Ne recommande pas extraction si ajoute complexité sans gain clair
+- 100% métriques parfaites ≠ objectif - code maintenable l'est
+- Priorise problèmes impact maintenance réelle quotidienne
+
+**Fausses alertes ignorer:**
+- Orchestrateur UI 60L sections claires
+- Handler événement 55L états UI cohérents
+- Parser 70L switch/if structurés
+
+**Vraies alertes critiques:**
+- Méthode 150L+ logique métier imbriquée
+- Duplication >30L entre méthodes
+- Mix métier + SQL + UI même méthode
+
+═══════════════════════════════════════════════════════════════════════════════
+📝 RÈGLES CONCISION NIVEAU PLANCK
+═══════════════════════════════════════════════════════════════════════════════
+
+**Élimination redondances atomiques:**
+- Si métrique chiffrée dans executive_summary, NE PAS répéter comparison_with_best_practices
+- comparison.good: aspects QUALITATIFS patterns SEULEMENT sans répéter chiffres
+- Verdict métriques acceptables: 1 phrase EXACTEMENT
+
+**Compression verdicts:**
+- complexity_distribution.analysis: 1 phrase MAX si distribution excellente
+- long_methods.verdict: 1 phrase MAX si 0-2 >50L acceptables
+- responsibility_analysis.verdict: 1 phrase TOTALE
+
+**Densité maximale:**
+- executive_summary: 4 phrases MAX
+- critical_issues P3: 1 phrase description, 1 impact, 1 solution
+- Supprimer mots redondants: "cosmétique", "esthétique", "EXCELLENT" répétés
+
+**Sections optionnelles si LOW severity:**
+- method_by_method_refactoring: 1 entry MAX (ou omis)
+- immediate_quick_wins: 2 items MAX
+- Si refactoring NON recommandé: PAS de section code
+
+**Format ultra-compact:**
+- Arrays 1 ligne: ["item1", "item2"] si <5 items courts
+- benefits: 2 items MAX P3, 3-4 P0/P1
+- steps: 3 items MAX P3, 5-7 P0/P1
+
+**Règles priorisation:**
+- P0 = Bloque maintenance (>150L, duplication massive, logique non testable)
+- P1 = Ralentit développement (architecture incohérente, couplage fort)
+- P2 = Amélioration utile (docs manquantes, refactoring extraction optionnelle)
+- P3 = Cosmétique (55L acceptable, naming perfectible, métrique vanity)
+
+Limite P0/P1 problèmes impact maintenance réel mesurable.
+
+═══════════════════════════════════════════════════════════════════════════════
+🚫 NE PAS RECOMMANDER
+═══════════════════════════════════════════════════════════════════════════════
+
+N'inclus PAS ces "améliorations" sauf problème majeur avéré:
+- Extraction méthode <70L bien structurée pour atteindre 0% >50L
+- Création classe orchestrator pour méthode UI 60-80L cohérente
+- Split handler événement claire en micro-méthodes 5-10L
+- Refactoring cosmétique sans bénéfice testabilité/maintenance mesurable
+
+Focus problèmes impactant développement quotidien, pas perfection métrique.
+
+═══════════════════════════════════════════════════════════════════════════════
+⚠️⚠️⚠️ RAPPEL FINAL ⚠️⚠️⚠️
+═══════════════════════════════════════════════════════════════════════════════
+
+GÉNÈRE UNIQUEMENT JSON PUR EN FRANÇAIS. PAS MARKDOWN. PAS EXPLICATIONS.
+Premier caractère: {
+Dernier caractère: }
+LANGUE: FRANÇAIS pour TOUT contenu textuel
+CONCISION: Format ultra-compact niveau Planck

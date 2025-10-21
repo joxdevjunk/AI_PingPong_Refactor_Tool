@@ -1,0 +1,14 @@
+### {{ task.class_name }}.{{ task.method_name }} (ligne {{ task.lineno }})
+
+**Fichier** : `{{ task.file }}`  
+**Signature** : `{{ task.signature }}`
+
+{{ task.code if task.code else "# Code non disponible" }}
+
+{% if task.docstring %}
+**Documentation** : {{ task.docstring }}
+{% else %}
+**Documentation** : ⚠️ Non documentée
+{% endif %}
+
+---

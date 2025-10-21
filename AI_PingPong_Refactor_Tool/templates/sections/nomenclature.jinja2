@@ -1,0 +1,32 @@
+## 📚 Nomenclature du Code
+
+{% if selected_tasks %}
+{% for task in selected_tasks %}
+**Classe : `{{ task.class_name }}`**
+
+Variables d'instance disponibles :
+{% if task.instance_variables_by_method %}
+{% for method, vars in task.instance_variables_by_method.items() %}
+- `{{ method }}()` définit : `{{ vars | join('`, `') }}`
+{% endfor %}
+{% else %}
+- Aucune variable d'instance détectée
+{% endif %}
+
+Méthode `{{ task.method_name }}()` utilise :
+- **Paramètres** : `{{ task.local_vars.parameters | join('`, `') if task.local_vars.parameters else 'aucun' }}`
+- **Variables locales** : `{{ task.local_vars.assigned | join('`, `') if task.local_vars.assigned else 'aucune' }}`
+- **Variables de boucle** : `{{ task.local_vars.for_vars | join('`, `') if task.local_vars.for_vars else 'aucune' }}`
+- **Variables with** : `{{ task.local_vars.with_vars | join('`, `') if task.local_vars.with_vars else 'aucune' }}`
+
+{% endfor %}
+
+---
+
+🚨 **RÈGLES ABSOLUES** :
+❌ N'invente JAMAIS de nouveaux noms de variables
+✅ Utilise UNIQUEMENT les noms listés ci-dessus
+❌ Si tu as besoin d'une nouvelle variable, demande d'abord
+✅ Respecte EXACTEMENT la nomenclature du projet
+
+{% endif %}

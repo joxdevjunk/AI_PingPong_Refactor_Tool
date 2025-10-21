@@ -1,0 +1,107 @@
+# ✨ Nouvelle Feature - {{ project_name }}
+
+{% include 'sections/context.jinja2' %}
+
+## 📋 Demande de Feature
+
+{{ feature_description if feature_description else "⚠️ Description de la feature à fournir" }}
+
+## 🏗️ Architecture Existante
+
+{% if num_tasks == 0 %}
+⚠️ **Aucune task sélectionnée** - Sélectionnez les composants pertinents qui seront impactés ou serviront de base.
+{% else %}
+
+### Composants Sélectionnés
+
+{% for task in selected_tasks %}
+{% include 'sections/code_snippet.jinja2' %}
+{% endfor %}
+{% endif %}
+
+## 🎯 Ta Mission
+
+{% if code_mode %}
+{# MODE CODE : Génération code complet #}
+Implémente cette feature avec du **code complet prêt à utiliser**.
+
+**RÈGLES STRICTES** :
+- Code **COMPLET et FONCTIONNEL** (pas de `...`)
+- Tous les imports
+- Docstrings complètes
+- Gestion erreurs
+- Code prêt à copier-coller
+
+**Format de réponse** :
+
+{
+"feature_analysis": "Analyse de la demande",
+"implementation": {
+"new_files": [
+{
+"filename": "new_module.py",
+"purpose": "Description",
+"full_code": "# CODE PYTHON COMPLET\nimport required_modules\n\nclass NewFeature:\n '''Docstring complète'''\n \n def init(self):\n pass\n \n def main_method(self):\n '''Fait X'''\n # Implémentation complète\n return result"
+}
+],
+"modified_files": [
+{
+"filename": "existing_file.py",
+"changes_description": "Ajout méthode X",
+"full_modified_code": "# CODE COMPLET DU FICHIER MODIFIÉ"
+}
+]
+},
+"usage_example": "from new_module import NewFeature\n\nfeature = NewFeature()\nfeature.main_method()",
+"tests": {
+"test_code": "import unittest\n# Tests complets"
+},
+"ready_to_implement": true
+}
+
+{% else %}
+{# MODE ANALYSE : Architecture et plan #}
+Propose l'architecture et l'implémentation de cette nouvelle feature.
+
+**Format de réponse attendu** :
+{
+"feature_analysis": "Analyse de la demande et compréhension",
+"architecture_proposal": {
+"approach": "Approche recommandée",
+"components": [
+{
+"name": "Nom du composant",
+"type": "class/module/function",
+"responsibility": "Responsabilité"
+}
+],
+"integration_points": [
+"Points d'intégration avec code existant"
+]
+},
+"files_to_create": [
+{
+"file": "nouveau_fichier.py",
+"description": "Description et contenu",
+"code_outline": "Structure du code"
+}
+],
+"files_to_modify": [
+{
+"file": "fichier_existant.py",
+"changes": "Modifications nécessaires"
+}
+],
+"implementation_plan": [
+"Étape 1 : ...",
+"Étape 2 : ..."
+],
+"tests_strategy": "Stratégie de tests",
+"questions": [],
+"next_needed": [],
+"ready_to_implement": false
+}
+{% endif %}
+
+**Réponds UNIQUEMENT avec le JSON.**
+

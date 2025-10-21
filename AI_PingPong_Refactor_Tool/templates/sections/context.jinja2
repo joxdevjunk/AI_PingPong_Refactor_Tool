@@ -1,0 +1,10 @@
+## 📋 Contexte Projet
+
+**Projet** : {{ project_name }}  
+**Tasks sélectionnées** : {{ num_tasks }}  
+**Fichiers concernés** : {{ selected_tasks|map(attribute='file')|unique|list|length }}
+
+### Fichiers impactés
+{% for file in selected_tasks|map(attribute='file')|unique %}
+- `{{ file }}`
+{% endfor %}

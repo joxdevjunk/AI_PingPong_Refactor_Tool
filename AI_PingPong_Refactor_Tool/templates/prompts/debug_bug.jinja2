@@ -1,0 +1,93 @@
+# 🐛 Debug Bug - {{ project_name }}
+
+{% include 'sections/context.jinja2' %}
+
+## 🔍 Description du Bug
+
+{{ bug_description if bug_description else "⚠️ Description à fournir" }}
+
+{% if traceback %}
+## 📋 Traceback
+
+{{ traceback }}
+
+{% endif %}
+
+## 📝 Code Concerné
+
+{% if num_tasks == 0 %}
+⚠️ **Aucune task sélectionnée** - Sélectionnez les méthodes/classes pertinentes dans l'onglet Structure.
+{% else %}
+{% for task in selected_tasks %}
+{% include 'sections/code_snippet.jinja2' %}
+{% endfor %}
+{% endif %}
+
+## 🎯 Ta Mission
+
+{% if code_mode %}
+{# MODE CODE : On veut du code corrigé complet #}
+Analyse le bug et **génère le code corrigé complet** prêt à copier-coller.
+
+**IMPORTANT** :
+- Génère du code **COMPLET et FONCTIONNEL**
+- Pas de `...` ou `# TODO` ou pseudocode
+- Tous les imports nécessaires
+- Code prêt à remplacer l'existant
+
+**Format de réponse** :
+
+{
+"bug_analysis": "Analyse détaillée du bug",
+"root_cause": "Cause racine identifiée",
+"fixed_code": {
+"files": [
+{
+"filename": "{{ selected_tasks.file if selected_tasks else 'file.py' }}",
+"action": "replace_method",
+"method_name": "{{ selected_tasks.method_name if selected_tasks else 'method_name' }}",
+"full_code": "# CODE COMPLET CORRIGÉ ICI\ndef method_name(self, param):\n '''Docstring'''\n # Code fixé\n return result"
+}
+]
+},
+"tests": {
+"test_code": "# Tests pour vérifier le fix\nimport unittest\n..."
+},
+"ready_to_implement": true
+}
+
+
+{% else %}
+{# MODE ANALYSE : On veut juste comprendre #}
+Analyse le bug et propose une solution détaillée.
+
+**Format de réponse attendu** :
+
+{
+"bug_analysis": "Analyse détaillée du bug",
+"root_cause": "Cause racine identifiée",
+"proposed_fix": {
+"description": "Description de la correction",
+"files_to_modify": [
+{
+"file": "nom_fichier.py",
+"changes": "Description des changements"
+}
+],
+"code_example": "Exemple de code corrigé si nécessaire"
+},
+"tests_needed": [
+"Tests à ajouter pour éviter régression"
+],
+"questions": [
+"Questions si informations manquantes"
+],
+"next_needed": [
+"code_snippet:file.py:ClassName.method_name",
+"clarify:specific_topic"
+],
+"ready_to_implement": false
+}
+{% endif %}
+
+**Réponds UNIQUEMENT avec le JSON.**

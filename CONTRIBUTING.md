@@ -1,6 +1,8 @@
+### PAGE EN COURS D EDITION ###
+
 # Guide de Contribution - APRT
 
-Merci de l'intérêt que vous portez à APRT ! 🎉
+Merci de l'intérêt que vous portez à APRT ! 🎉 
 
 Ce document explique comment contribuer efficacement au projet.
 
